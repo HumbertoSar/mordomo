@@ -1,0 +1,33 @@
+"""Subagente Lembretes — ReAct (LLM + tools em loop) sem checkpointer próprio:
+o histórico mora no grafo pai; aqui cada chamada é stateless."""
+
+from ..config import settings
+from ..core.llm import chat_model, criar_agente
+from ..core.state import EstadoMordomo
+from ..tools.lembretes import TOOLS_LEMBRETES
+
+PROMPT_LEMBRETES = """Você é o especialista em LEMBRETES do Mordomo da Família.
+
+Regras:
+- Ao criar, passe para a tool a expressão de tempo EXATAMENTE como o usuário
+  disse (ex.: "amanhã às 8h") — quem resolve a data é a tool, não você.
+- Se a tool disser que NÃO ENTENDEU a data ou que ela está no passado,
+  pergunte ao usuário a data/hora exata. NUNCA invente data.
+- Se faltar a hora, assuma nada: pergunte ("de manhã? que horas?").
+- Respostas curtas, tom de mordomo simpático, formato WhatsApp (sem markdown
+  pesado, sem listas longas).
+"""
+
+_agente = None
+
+
+def agente_lembretes():
+    global _agente
+    if _agente is None:
+        _agente = criar_agente(chat_model(settings.model_agente), TOOLS_LEMBRETES, PROMPT_LEMBRETES)
+    return _agente
+
+
+async def no_lembretes(state: EstadoMordomo, config) -> dict:
+    resultado = await agente_lembretes().ainvoke({"messages": state["messages"]}, config)
+    return {"messages": [resultado["messages"][-1]]}

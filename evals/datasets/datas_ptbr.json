@@ -1,0 +1,23 @@
+{
+  "descricao": "Eval de parsing de datas pt-BR. `esperado` null = a resposta CORRETA é pedir esclarecimento (resolver_data deve devolver None). Base: segunda-feira 10/08/2026 09:00 America/Sao_Paulo. Errar aqui não quebra build — é o backlog de melhoria (o antes/depois do portfólio).",
+  "base": "2026-08-10T09:00:00",
+  "casos": [
+    { "expressao": "amanhã às 8h", "esperado": "2026-08-11T08:00", "tipo": "comum" },
+    { "expressao": "hoje às 20h", "esperado": "2026-08-10T20:00", "tipo": "comum" },
+    { "expressao": "daqui a 2 horas", "esperado": "2026-08-10T11:00", "tipo": "comum" },
+    { "expressao": "daqui a 30 minutos", "esperado": "2026-08-10T09:30", "tipo": "comum" },
+    { "expressao": "depois de amanhã ao meio-dia", "esperado": "2026-08-12T12:00", "tipo": "comum" },
+    { "expressao": "sexta às 19h", "esperado": "2026-08-14T19:00", "tipo": "comum" },
+    { "expressao": "sexta que vem às 19h", "esperado": "2026-08-14T19:00", "tipo": "dificil", "nota": "humanos divergem: 14/08 ou 21/08? decisão de produto — documente a regra" },
+    { "expressao": "segunda às 7h30", "esperado": "2026-08-17T07:30", "tipo": "dificil", "nota": "hoje é segunda 09:00; 7h30 já passou → próxima segunda" },
+    { "expressao": "15/09 às 10h", "esperado": "2026-09-15T10:00", "tipo": "comum" },
+    { "expressao": "23/12 às 9h", "esperado": "2026-12-23T09:00", "tipo": "comum" },
+    { "expressao": "dia 5 de outubro às 15h", "esperado": "2026-10-05T15:00", "tipo": "comum" },
+    { "expressao": "em uma semana", "esperado": "2026-08-17T09:00", "tipo": "dificil" },
+    { "expressao": "às 18", "esperado": "2026-08-10T18:00", "tipo": "dificil" },
+    { "expressao": "amanhã de manhã", "esperado": null, "tipo": "ambigua", "nota": "que horas é 'de manhã'? pedir esclarecimento é o correto" },
+    { "expressao": "sábado de manhã", "esperado": null, "tipo": "ambigua" },
+    { "expressao": "depois do almoço", "esperado": null, "tipo": "ambigua" },
+    { "expressao": "dia das mães", "esperado": null, "tipo": "ambigua", "nota": "feriados móveis: fase 2 (tabela de datas BR?)" }
+  ]
+}

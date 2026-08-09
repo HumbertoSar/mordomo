@@ -1,0 +1,18 @@
+{
+  "descricao": "Eval de roteamento do supervisor. `esperado` = destino correto. Enriquecer com frases REAIS da família tiradas dos traces do Langfuse (curadoria semanal).",
+  "casos": [
+    { "frase": "me lembra amanhã às 8h de pagar o boleto", "esperado": "lembretes" },
+    { "frase": "que lembretes eu tenho?", "esperado": "lembretes" },
+    { "frase": "cancela o lembrete 3", "esperado": "lembretes" },
+    { "frase": "não esquece do dentista amanhã às 14h", "esperado": "lembretes", "tipo": "dificil" },
+    { "frase": "marca consulta com a pediatra sexta às 10h", "esperado": "agenda" },
+    { "frase": "o que temos no sábado?", "esperado": "agenda" },
+    { "frase": "temos algo marcado essa semana?", "esperado": "agenda" },
+    { "frase": "agenda aí almoço na casa da vovó domingo meio-dia", "esperado": "agenda" },
+    { "frase": "bom dia mordomo!", "esperado": "responder" },
+    { "frase": "obrigado!", "esperado": "responder" },
+    { "frase": "me indica um filme pra hoje à noite", "esperado": "responder", "nota": "Curador chega na fase 2 — por ora é fora de escopo" },
+    { "frase": "manda um email pra escola avisando que o João faltou", "esperado": "responder", "nota": "Mensageiro chega na fase 2" },
+    { "frase": "marca aí", "esperado": "responder", "tipo": "dificil", "nota": "ambíguo de verdade → pedir esclarecimento" }
+  ]
+}

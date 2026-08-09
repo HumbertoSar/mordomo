@@ -1,0 +1,88 @@
+# 🤵 Mordomo da Família
+
+Agente conversacional multi-agente (supervisor + subagentes) para uma família
+brasileira — lembretes, agenda e, em breve, tarefas, e-mail e indicações de
+filmes. Construído com **LangGraph** para aprender e demonstrar **analytics,
+observabilidade (Langfuse) e evals** em um agente com usuários reais.
+
+Canal atual: **Telegram** (long polling, zero burocracia). Destino: **WhatsApp
+Cloud API oficial** — a migração já está desenhada no contrato de canal
+(`src/mordomo/channels/contract.py`, ADR-001).
+
+## Stack
+
+Python 3.11+ · LangGraph/LangChain 1.x · OpenRouter (um provedor, vários
+modelos) · aiogram · Postgres (checkpointer + domínio + eventos de analytics) ·
+Langfuse (traces) · APScheduler (proatividade) · dateparser (datas pt-BR).
+
+## Subir em 10 minutos
+
+Pré-requisitos: [uv](https://docs.astral.sh/uv/), Docker, um bot do Telegram
+(@BotFather) e uma chave do [OpenRouter](https://openrouter.ai/keys).
+
+```bash
+make install                 # dependências (uv sync)
+make up                      # Postgres (docker compose up -d)
+cp .env.example .env         # preencha TELEGRAM_BOT_TOKEN e OPENROUTER_API_KEY
+make db-init                 # tabelas
+uv run python scripts/seed_familia.py --nome "Seu Nome" --telegram-id SEU_ID --papel adulto
+make run                     # 🤵 a postos
+```
+
+**Windows não tem `make`.** Use o `tasks.ps1`, que espelha os mesmos alvos:
+
+```powershell
+.\tasks.ps1 install ; .\tasks.ps1 up ; .\tasks.ps1 db-init ; .\tasks.ps1 run
+```
+
+Se o projeto estiver dentro do OneDrive, exclua `.venv/` da sincronização —
+senão o `uv sync` esbarra em arquivos travados.
+
+Seu telegram-id: mande /start ao bot e veja o log de `unknown_user`, ou use o
+@userinfobot. Langfuse (opcional, recomendado): crie projeto grátis em
+cloud.langfuse.com e preencha as chaves no `.env` — cada conversa vira um
+trace navegável (user = membro, session = conversa do dia).
+
+Teste no chat: `me lembra amanhã às 8h de pagar o boleto` · `que lembretes eu
+tenho?` · `marca dentista sexta às 10h` · `o que temos essa semana?`
+
+## Desenvolvimento
+
+```bash
+make test    # testes rápidos (SQLite, sem rede/chaves/Docker)
+make evals   # eval de datas pt-BR; --com-llm adiciona roteamento do supervisor
+make lint
+```
+
+No Windows: `.\tasks.ps1 test`, `.\tasks.ps1 evals --com-llm`, `.\tasks.ps1 lint`.
+
+O fluxo de aprendizado do projeto: operar com a família → ler traces no
+Langfuse → medir (evals + eventos em `product_events`) → corrigir → re-medir.
+Casos reais ruins viram linhas nos datasets de `evals/datasets/`.
+
+## Estrutura
+
+```
+src/mordomo/
+  channels/   contrato semântico + adapters (telegram; whatsapp na fase 3)
+  core/       grafo, estado, pipeline (nasce o trace), fábrica de LLM/agentes
+  agents/     supervisor (roteador) + subagentes lembretes e agenda
+  tools/      tools com analytics embutido + datas pt-BR (dateparser)
+  db/         SQLAlchemy: domínio + eventos de produto
+  scheduler.py / notify.py / identity.py / observability.py / analytics.py
+evals/        datasets (datas pt-BR, roteamento) + runner
+tests/        contrato de renderização (golden), datas, identidade
+docs/adr/     as 4 decisões de arquitetura que valem portfólio
+CLAUDE.md     guia para desenvolver com Claude Code
+```
+
+## Decisões de arquitetura (resumo)
+
+ADR-001 contrato de canal (migração Telegram→WhatsApp sem tocar no agente) ·
+ADR-002 supervisor à mão (roteamento é eval de primeira classe) · ADR-003
+thread = membro (memória sobrevive à troca de canal) · ADR-004 tool nativa vs.
+MCP (decidir na fase 2). Detalhes em `docs/adr/`.
+
+> ⚠️ WhatsApp: apenas a **Cloud API oficial** (número de teste grátis para a
+> família; depois chip dedicado). Nunca Evolution API/Baileys no número
+> pessoal — risco real de banimento permanente.

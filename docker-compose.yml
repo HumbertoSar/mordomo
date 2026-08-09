@@ -1,0 +1,24 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: mordomo-postgres
+    environment:
+      POSTGRES_USER: mordomo
+      POSTGRES_PASSWORD: mordomo
+      POSTGRES_DB: mordomo
+    ports:
+      - "5432:5432"
+    volumes:
+      - mordomo_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mordomo"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  mordomo_pgdata:
+
+# Observabilidade: comece com o Langfuse Cloud (plano grátis) — só preencher
+# as chaves no .env. Para self-host depois (v3 usa ClickHouse + Redis + S3),
+# siga https://langfuse.com/self-hosting — não vale acoplar aqui no MVP.
