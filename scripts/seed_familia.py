@@ -14,6 +14,7 @@ import asyncio
 
 from mordomo.db.models import ChannelIdentity, Member
 from mordomo.db.session import Sessao, criar_tabelas
+from mordomo.plataforma import preparar
 
 
 async def cadastrar(nome: str, telegram_id: str, papel: str) -> None:
@@ -49,4 +50,5 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
+    preparar()  # psycopg async não roda no ProactorEventLoop do Windows
     asyncio.run(main())

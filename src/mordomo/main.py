@@ -10,15 +10,14 @@ from contextlib import AsyncExitStack
 from . import scheduler
 from .channels.telegram import TelegramAdapter
 from .config import settings
-from .console import forcar_utf8
 from .core.graph import build_graph
 from .db.session import criar_tabelas
+from .plataforma import preparar
 
 log = logging.getLogger("mordomo")
 
 
 async def main() -> None:
-    forcar_utf8()  # emojis nos logs quebram o console cp1252 do Windows
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
     )
@@ -56,4 +55,5 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
+    preparar()  # event loop + UTF-8 (Windows) — antes do asyncio.run
     asyncio.run(main())

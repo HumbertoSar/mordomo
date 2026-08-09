@@ -78,9 +78,9 @@ async def eval_roteamento() -> float:
 
 
 def main() -> None:
-    from mordomo.console import forcar_utf8
+    from mordomo.plataforma import preparar
 
-    forcar_utf8()  # ✓/✗ e ── não cabem no cp1252 do console do Windows
+    preparar()  # ✓/✗ e ── não cabem no cp1252 do console do Windows
 
     p = argparse.ArgumentParser()
     p.add_argument("--com-llm", action="store_true", help="roda também o eval de roteamento (chama o LLM)")

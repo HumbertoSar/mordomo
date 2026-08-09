@@ -3,6 +3,7 @@
 import asyncio
 
 from mordomo.db.session import criar_tabelas, engine
+from mordomo.plataforma import preparar
 
 
 async def main() -> None:
@@ -11,4 +12,5 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
+    preparar()  # psycopg async não roda no ProactorEventLoop do Windows
     asyncio.run(main())
