@@ -9,8 +9,8 @@ from contextlib import AsyncExitStack
 
 from . import scheduler
 from .channels.telegram import TelegramAdapter
-from .console import forcar_utf8
 from .config import settings
+from .console import forcar_utf8
 from .core.graph import build_graph
 from .db.session import criar_tabelas
 
