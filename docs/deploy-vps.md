@@ -34,6 +34,16 @@ Preencha `TELEGRAM_BOT_TOKEN`, `OPENROUTER_API_KEY`, `GROQ_API_KEY` e as chaves
 do Langfuse. **`DATABASE_URL` pode ficar como está**: o compose injeta a URL
 certa (host `postgres`) por cima no container.
 
+Se a VPS já tiver outro Postgres publicado em `127.0.0.1:5432` (é o caso da
+VPS do Humberto — o storyrender usa), acrescente ao `.env`:
+
+```
+POSTGRES_HOST_PORT=5433
+```
+
+O bot não é afetado (fala com o banco pela rede interna do compose); a porta do
+host só serve para diagnósticos com `psql` de fora.
+
 ## 3. Migrar os dados de casa (antes do primeiro boot!)
 
 Na máquina Windows, gere o dump e envie:
