@@ -32,5 +32,8 @@ def aplicar_migracoes() -> bool:
 
     cfg = Config(str(_INI))
     cfg.set_main_option("script_location", str(_RAIZ / "migrations"))
+    # Sem isto, o fileConfig do env.py aplicaria o logging do alembic.ini
+    # (root em WARNING) ao processo inteiro e o bot seguiria mudo depois do boot.
+    cfg.attributes["configure_logger"] = False
     command.upgrade(cfg, "head")
     return True

@@ -12,13 +12,20 @@ Agentes Conversacionais" (docs `mordomo-familia-arquitetura-e-possibilidades-v2.
 ```bash
 make install   # uv sync
 make up        # Postgres via docker compose
-make db-init   # cria tabelas
+make db-init   # alembic upgrade head (NÃO é mais create_all)
 make seed      # cadastra família de exemplo (ou scripts/seed_familia.py --nome ... --telegram-id ...)
 make run       # inicia o bot (precisa de TELEGRAM_BOT_TOKEN e OPENROUTER_API_KEY no .env)
 make test      # pytest — SEM rede/chaves/Docker (SQLite via tests/conftest.py)
 make evals     # eval de datas pt-BR; `uv run python evals/run_evals.py --com-llm` inclui roteamento
 make lint      # ruff
+
+uv run python -m mordomo.reporting.dashboard --dias 30   # gera docs/dashboard.html
+uv run alembic revision --autogenerate -m "..."          # nova migração
+powershell -ExecutionPolicy Bypass -File scripts/backup.ps1
 ```
+
+**No Windows não existe `make`**: use `.\tasks.ps1 <alvo>` (mesmos nomes). Se o
+PowerShell recusar, `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` uma vez.
 
 ## Arquitetura (mapa mental)
 
@@ -41,8 +48,13 @@ notify.py: proatividade abstraída (scheduler → canal)  ·  identity.py: (cana
 3. **Datas pt-BR só via `tools/datas.resolver_data`** (híbrido: LLM extrai a
    expressão, parser determinístico resolve). Se devolver None, o agente
    PERGUNTA — nunca inventa data.
-4. **Toda tool nova emite analytics** (`tool_called`/`tool_result` via
-   `analytics.emitir`) e falha de analytics nunca derruba a conversa.
+4. **Toda tool nova emite analytics por `analytics.emitir_de(config, ...)`** —
+   nunca `emitir()` cru quando houver `config` à mão. `emitir_de` puxa
+   member/session/**turn_id** do `configurable`; evento sem `turn_id` não entra
+   em nenhum funil e vira linha órfã (o dashboard tem um KPI só para vigiar
+   isso, e ele tem que ficar em ZERO). Todo caminho de saída emite `tool_result`,
+   inclusive os de falha — o `motivo` é o que vira caso novo no eval.
+   Falha de analytics nunca derruba a conversa.
 5. **Mexeu em prompt ou em `resolver_data` → rode `make evals`** e anote o
    antes/depois (é o material do portfólio). Frases reais boas/ruins dos
    traces do Langfuse viram casos novos nos datasets.
@@ -64,6 +76,25 @@ notify.py: proatividade abstraída (scheduler → canal)  ·  identity.py: (cana
   modelos OpenRouter podem precisar de cadastro manual no Langfuse (Settings → Models).
 - Checkpointer Postgres entra por context manager em `main.py` (AsyncExitStack);
   SQLite/testes caem em InMemorySaver.
+- **Windows**: `plataforma.preparar()` é obrigatório ANTES de `asyncio.run()` em
+  todo ponto de entrada. O psycopg async se recusa a rodar no ProactorEventLoop
+  (padrão do Windows) e o console cp1252 estoura em `✓`, `──` e emoji.
+- **Alembic + checkpointer**: as tabelas do LangGraph (`checkpoint*`) vivem no
+  mesmo banco e NÃO estão em `Base.metadata`. Sem o `include_object` de
+  `migrations/env.py`, o autogenerate escreve `drop_table` para elas e apaga o
+  histórico de conversas. Confira toda migração nova antes de aplicar.
+- **Alembic + logging**: `fileConfig()` reconfigura o logging do processo inteiro
+  e o `alembic.ini` põe o root em WARNING. Ao rodar migração programaticamente,
+  `cfg.attributes["configure_logger"] = False` — senão o bot sobe mudo.
+- Latência: o OpenRouter serve o mesmo modelo de hosts diferentes e a cauda
+  chega a 10s (ADR-006). `chat_model()` já tem timeout + retry.
+
+## Feito (fase 1)
+
+Instrumentação fechada: `turn_id` em todo evento, `turn_completed` com latência,
+`llm_usage` por nó (custo de rotear vs. executar), `orchestrator_parse_error`.
+Leitura em `reporting/` (queries + `docs/dashboard.html` autocontido). Alembic
+com baseline. Backup em `scripts/backup.ps1`. ADR-006 sobre latência.
 
 ## Roadmap (o que falta — fase 2+)
 

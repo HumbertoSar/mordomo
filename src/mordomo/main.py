@@ -20,10 +20,6 @@ log = logging.getLogger("mordomo")
 
 
 async def main() -> None:
-    logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
-    )
-
     if not settings.telegram_bot_token:
         sys.exit("Defina TELEGRAM_BOT_TOKEN no .env (crie o bot com o @BotFather).")
     if not settings.openrouter_api_key:
@@ -61,9 +57,11 @@ async def main() -> None:
 
 if __name__ == "__main__":
     preparar()  # event loop + UTF-8 (Windows) — antes do asyncio.run
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+    )
     if settings.database_url.startswith("postgresql"):
         # Fora do asyncio.run de propósito: o env.py do Alembic abre o próprio
         # event loop e não pode ser chamado de dentro de um já rodando.
-        logging.basicConfig(level=logging.INFO)
         aplicar_migracoes()
     asyncio.run(main())
