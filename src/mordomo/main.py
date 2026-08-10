@@ -19,12 +19,16 @@ from .plataforma import preparar
 log = logging.getLogger("mordomo")
 
 
-async def main() -> None:
+def validar_ambiente() -> None:
+    """Roda ANTES de qualquer conexão: erro de configuração tem que aparecer
+    como uma frase, não como traceback de banco inacessível."""
     if not settings.telegram_bot_token:
         sys.exit("Defina TELEGRAM_BOT_TOKEN no .env (crie o bot com o @BotFather).")
     if not settings.openrouter_api_key:
         sys.exit("Defina OPENROUTER_API_KEY no .env (https://openrouter.ai/keys).")
 
+
+async def main() -> None:
     if not settings.database_url.startswith("postgresql"):
         # SQLite (dev/teste): sem migrações, o create_all resolve.
         await criar_tabelas()
@@ -60,6 +64,7 @@ if __name__ == "__main__":
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
     )
+    validar_ambiente()
     if settings.database_url.startswith("postgresql"):
         # Fora do asyncio.run de propósito: o env.py do Alembic abre o próprio
         # event loop e não pode ser chamado de dentro de um já rodando.

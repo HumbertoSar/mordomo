@@ -81,6 +81,13 @@ docs/adr/     as 4 decisões de arquitetura que valem portfólio
 CLAUDE.md     guia para desenvolver com Claude Code
 ```
 
+## Operar (VPS)
+
+O bot roda em long polling — nenhuma porta exposta. Deploy completo (Docker,
+migração dos dados, backup em cron, split dev/prod) em
+[docs/deploy-vps.md](docs/deploy-vps.md). Resumo: `git clone`, `.env`,
+`docker compose --profile bot up -d --build`.
+
 ## Decisões de arquitetura (resumo)
 
 ADR-001 contrato de canal (migração Telegram→WhatsApp sem tocar no agente) ·

@@ -7,7 +7,9 @@ services:
       POSTGRES_PASSWORD: mordomo
       POSTGRES_DB: mordomo
     ports:
-      - "5432:5432"
+      # Só localhost: em dev o app roda fora do compose e conecta aqui; na VPS
+      # isso evita expor o Postgres à internet (o bot fala pela rede interna).
+      - "127.0.0.1:5432:5432"
     volumes:
       - mordomo_pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -15,6 +17,23 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    restart: unless-stopped
+
+  # Produção (VPS): `docker compose --profile bot up -d --build`.
+  # Em dev o perfil fica de fora — o bot roda com `make run` na máquina,
+  # e subir os dois com o MESMO token daria conflito 409 no long polling.
+  bot:
+    profiles: ["bot"]
+    build: .
+    container_name: mordomo-bot
+    env_file: .env
+    environment:
+      # Dentro do compose o Postgres se chama "postgres", não localhost
+      DATABASE_URL: postgresql+psycopg://mordomo:mordomo@postgres:5432/mordomo
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
 
 volumes:
   mordomo_pgdata:
