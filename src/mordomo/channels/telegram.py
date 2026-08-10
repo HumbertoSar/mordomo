@@ -23,6 +23,7 @@ from ..config import settings
 from ..core.pipeline import processar_entrada
 from ..identity import identidade_do_membro, resolver_membro
 from ..notify import registrar_adapter
+from ..observability import session_id_de
 from .contract import (
     TELEGRAM_CAPS,
     Choice,
@@ -112,10 +113,17 @@ class TelegramAdapter:
             timestamp=datetime.now(UTC),
         )
         await self.bot.send_chat_action(chat_id, "typing")
-        respostas = await processar_entrada(membro, inbound, self.grafo)
+        turn_id, respostas = await processar_entrada(membro, inbound, self.grafo)
         for resposta in respostas:
             await self._enviar_chat(chat_id, resposta)
-            await emitir("message_sent", membro.id, canal="telegram", tamanho=len(resposta.texto))
+            await emitir(
+                "message_sent",
+                membro.id,
+                session_id_de(membro.id),
+                turn_id,
+                canal="telegram",
+                tamanho=len(resposta.texto),
+            )
 
     # ── Renderização (contrato → Telegram) ───────────────────────────────
 

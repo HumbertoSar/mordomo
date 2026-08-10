@@ -76,8 +76,20 @@ class FamilyEvent(Base):
 
 class ProductEvent(Base):
     """Evento estruturado: message_received, orchestrator_decision, tool_called,
-    tool_result, message_sent, reminder_fired… O dashboard de gestão à vista
-    lê de agregações sobre esta tabela (nunca do dado bruto direto)."""
+    tool_result, llm_usage, turn_completed, message_sent, reminder_fired… O
+    dashboard de gestão à vista lê de agregações sobre esta tabela (nunca do
+    dado bruto direto).
+
+    Três chaves de análise, do mais largo ao mais fino:
+      member_id  — quem
+      session_id — a conversa do dia ("<member_id>:<data>")
+      turn_id    — UMA pergunta e sua resposta; é o que permite reconstruir o
+                   funil (recebi → roteei → chamei tool → respondi) e atribuir
+                   latência e custo a um turno específico.
+
+    Só guardamos FATOS aqui (tokens, ms, ok/erro). Métrica derivada — custo em
+    dólar, p95, taxa de sucesso — é responsabilidade de reporting/queries.py:
+    assim o preço de um modelo pode mudar sem reescrever o histórico."""
 
     __tablename__ = "product_events"
 
@@ -86,4 +98,5 @@ class ProductEvent(Base):
     tipo: Mapped[str] = mapped_column(String(50), index=True)
     member_id: Mapped[int | None] = mapped_column(nullable=True, index=True)
     session_id: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    turn_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
     payload: Mapped[dict] = mapped_column(JSON, default=dict)

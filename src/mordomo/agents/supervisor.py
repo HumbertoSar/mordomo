@@ -10,11 +10,10 @@ from langgraph.graph import END
 from langgraph.types import Command
 from pydantic import BaseModel, Field
 
-from ..analytics import emitir
+from ..analytics import emitir_de, uso_de
 from ..config import settings
 from ..core.llm import chat_model
 from ..core.state import EstadoMordomo
-from ..observability import session_id_de
 
 PROMPT_SUPERVISOR = """Você é o Mordomo da Família: educado, caloroso, direto \
 e brasileiro. Você conversa pelo Telegram/WhatsApp, então respostas são CURTAS.
@@ -47,20 +46,42 @@ class Decisao(BaseModel):
 
 
 async def no_supervisor(
-    state: EstadoMordomo,
+    state: EstadoMordomo, config
 ) -> Command[Literal["lembretes", "agenda", "__end__"]]:
-    modelo = chat_model(settings.model_supervisor).with_structured_output(Decisao)
+    # include_raw=True devolve {"raw", "parsed", "parsing_error"}. Sem ele o
+    # AIMessage — e portanto o usage_metadata — era descartado, e uma falha de
+    # parse virava exceção genérica ("Ops, tropecei"), indistinguível de um bug
+    # de banco. Com ele, "o modelo não produziu JSON válido" ganha evento
+    # próprio: é o sintoma exato de modelo fraco em tool calling.
+    modelo = chat_model(settings.model_supervisor).with_structured_output(
+        Decisao, include_raw=True
+    )
     sistema = SystemMessage(
-        PROMPT_SUPERVISOR.format(nome=state.get("member_nome", "?"), papel=state.get("member_papel", "?"))
+        PROMPT_SUPERVISOR.format(
+            nome=state.get("member_nome", "?"), papel=state.get("member_papel", "?")
+        )
     )
-    decisao: Decisao = await modelo.ainvoke([sistema, *state["messages"]])
+    saida = await modelo.ainvoke([sistema, *state["messages"]], config)
 
-    await emitir(
-        "orchestrator_decision",
-        state.get("member_id"),
-        session_id_de(state.get("member_id", 0)),
-        destino=decisao.destino,
-    )
+    bruto = saida.get("raw") if isinstance(saida, dict) else None
+    if (uso := uso_de([bruto] if bruto is not None else [])) is not None:
+        await emitir_de(config, "llm_usage", no="supervisor", **uso)
+
+    decisao: Decisao | None = saida.get("parsed") if isinstance(saida, dict) else saida
+    if decisao is None:
+        erro = saida.get("parsing_error") if isinstance(saida, dict) else None
+        await emitir_de(
+            config,
+            "orchestrator_parse_error",
+            modelo=settings.model_supervisor,
+            erro=str(erro)[:200],
+        )
+        return Command(
+            goto=END,
+            update={"messages": [AIMessage("Me perdi por um instante. Pode repetir?")]},
+        )
+
+    await emitir_de(config, "orchestrator_decision", destino=decisao.destino)
 
     if decisao.destino == "responder":
         return Command(

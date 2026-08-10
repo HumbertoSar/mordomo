@@ -23,6 +23,19 @@ _SUBSTITUICOES: list[tuple[str, str]] = [
     (r"\bdentro de\b", "em"),
     (r"\bmeio[- ]dia\b", "12:00"),
     (r"\bmeia[- ]noite\b", "00:00"),
+    # O dateparser não conhece "depois de amanhã"; conhece "em 2 dias".
+    (r"\bdepois de amanhã\b", "em 2 dias"),
+    # "que vem": as formas com unidade viram intervalo explícito…
+    (r"\bsemana que vem\b", "em 1 semana"),
+    (r"\bmês que vem\b", "em 1 mês"),
+    (r"\bano que vem\b", "em 1 ano"),
+    # …e "sexta que vem" vira só "sexta". DECISÃO DE PRODUTO: "que vem" = a
+    # PRÓXIMA ocorrência (sexta que vem, numa segunda, é a sexta desta semana).
+    # Humanos divergem nisso; escolhemos a leitura mais literal e a documentamos
+    # aqui em vez de deixar o dateparser decidir sozinho.
+    (r"\bque vem\b", ""),
+    # "dia 5 de outubro" → "5 de outubro" (o "dia" solto atrapalha o parser).
+    (r"\bdia\s+(?=\d)", ""),
 ]
 
 
@@ -60,7 +73,7 @@ def _normalizar(expressao: str) -> str:
     e = re.sub(r"\b([àa]s)\s+(\d{1,2})\b(?!\s*:)", r"\1 \2:00", e)  # às 18 → às 18:00
     e = re.sub(r"\bao\s+(\d{1,2}:\d{2})\b", r"às \1", e)            # ao 12:00 → às 12:00
     e = _converter_periodo(e)                          # 8:00 da manhã → 08:00
-    return e
+    return re.sub(r"\s+", " ", e).strip()              # remover "que vem" deixa espaço duplo
 
 
 def resolver_data(expressao: str, base: datetime | None = None) -> datetime | None:

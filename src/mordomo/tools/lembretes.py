@@ -6,7 +6,10 @@ Padrões importantes:
   - O LLM passa a EXPRESSÃO de tempo original ("amanhã às 8h"); quem resolve
     é `resolver_data` (determinístico). Se não entender → a tool devolve
     instrução para PEDIR ESCLARECIMENTO, não chuta.
-  - Toda tool emite eventos de analytics (tool_called/tool_result)."""
+  - Toda tool emite analytics por `emitir_de(config, ...)`, que já carrega
+    member/session/turn — evento sem turn_id não entra em funil nenhum.
+  - Todo caminho de saída emite `tool_result`, inclusive os de falha: o motivo
+    ("data_nao_entendida") é o que vira backlog no eval de datas."""
 
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
@@ -16,7 +19,7 @@ from langchain_core.tools import tool
 from sqlalchemy import select
 
 from .. import scheduler
-from ..analytics import emitir
+from ..analytics import emitir_de
 from ..config import settings
 from ..db.models import Reminder
 from ..db.session import Sessao
@@ -38,16 +41,20 @@ async def criar_lembrete(texto: str, quando: str, config: RunnableConfig) -> str
             ainda não é suportado — recorrência chega na fase 2).
     """
     member_id = config["configurable"]["member_id"]
-    await emitir("tool_called", member_id, tool="criar_lembrete", quando=quando)
+    await emitir_de(config, "tool_called", tool="criar_lembrete", quando=quando)
     dt = resolver_data(quando)
     if dt is None:
-        await emitir("tool_result", member_id, tool="criar_lembrete", ok=False, motivo="data_nao_entendida")
+        await emitir_de(
+            config, "tool_result", tool="criar_lembrete", ok=False, motivo="data_nao_entendida"
+        )
         return (
             f"NÃO ENTENDI a expressão de tempo '{quando}'. "
             "Pergunte ao usuário a data e a hora exatas (não invente!)."
         )
     if dt <= datetime.now(UTC).astimezone(dt.tzinfo):
-        await emitir("tool_result", member_id, tool="criar_lembrete", ok=False, motivo="data_no_passado")
+        await emitir_de(
+            config, "tool_result", tool="criar_lembrete", ok=False, motivo="data_no_passado"
+        )
         return f"'{quando}' resolveu para {_fmt(dt)}, que já passou. Confirme a data com o usuário."
     async with Sessao() as s:
         lembrete = Reminder(member_id=member_id, texto=texto, quando_utc=dt.astimezone(UTC))
@@ -55,7 +62,8 @@ async def criar_lembrete(texto: str, quando: str, config: RunnableConfig) -> str
         await s.commit()
         await s.refresh(lembrete)
     scheduler.agendar(lembrete.id, lembrete.quando_utc)
-    await emitir("reminder_created", member_id, reminder_id=lembrete.id, quando=_fmt(dt))
+    await emitir_de(config, "tool_result", tool="criar_lembrete", ok=True)
+    await emitir_de(config, "reminder_created", reminder_id=lembrete.id, quando=_fmt(dt))
     return f"Lembrete #{lembrete.id} criado para {_fmt(dt)}: {texto}"
 
 
@@ -63,7 +71,7 @@ async def criar_lembrete(texto: str, quando: str, config: RunnableConfig) -> str
 async def listar_lembretes(config: RunnableConfig) -> str:
     """Lista os lembretes pendentes do membro atual."""
     member_id = config["configurable"]["member_id"]
-    await emitir("tool_called", member_id, tool="listar_lembretes")
+    await emitir_de(config, "tool_called", tool="listar_lembretes")
     async with Sessao() as s:
         res = await s.execute(
             select(Reminder)
@@ -71,6 +79,7 @@ async def listar_lembretes(config: RunnableConfig) -> str:
             .order_by(Reminder.quando_utc)
         )
         pendentes = list(res.scalars())
+    await emitir_de(config, "tool_result", tool="listar_lembretes", ok=True, n=len(pendentes))
     if not pendentes:
         return "Nenhum lembrete pendente."
     return "\n".join(f"#{r.id} — {_fmt(r.quando_utc)}: {r.texto}" for r in pendentes)
@@ -80,23 +89,23 @@ async def listar_lembretes(config: RunnableConfig) -> str:
 async def cancelar_lembrete(id_lembrete: int, config: RunnableConfig) -> str:
     """Cancela um lembrete pelo número (id). Use listar_lembretes antes se precisar do id."""
     member_id = config["configurable"]["member_id"]
-    await emitir("tool_called", member_id, tool="cancelar_lembrete", id=id_lembrete)
+    await emitir_de(config, "tool_called", tool="cancelar_lembrete", id=id_lembrete)
     async with Sessao() as s:
         lembrete = await s.get(Reminder, id_lembrete)
         if lembrete is None or lembrete.member_id != member_id:
-            await emitir(
-                "tool_result", member_id, tool="cancelar_lembrete", ok=False, motivo="nao_encontrado"
+            await emitir_de(
+                config, "tool_result", tool="cancelar_lembrete", ok=False, motivo="nao_encontrado"
             )
             return f"Lembrete #{id_lembrete} não encontrado entre os seus lembretes."
         if lembrete.status != "pendente":
-            await emitir(
-                "tool_result", member_id, tool="cancelar_lembrete", ok=False, motivo="ja_resolvido"
+            await emitir_de(
+                config, "tool_result", tool="cancelar_lembrete", ok=False, motivo="ja_resolvido"
             )
             return f"Lembrete #{id_lembrete} já está '{lembrete.status}'."
         lembrete.status = "cancelado"
         await s.commit()
     scheduler.cancelar_job(id_lembrete)
-    await emitir("tool_result", member_id, tool="cancelar_lembrete", ok=True)
+    await emitir_de(config, "tool_result", tool="cancelar_lembrete", ok=True)
     return f"Lembrete #{id_lembrete} cancelado."
 
 

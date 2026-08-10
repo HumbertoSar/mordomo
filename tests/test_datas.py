@@ -43,6 +43,25 @@ def test_periodo_da_noite_vira_24h():
     assert (dt.day, dt.hour) == (10, 19)
 
 
+def test_depois_de_amanha():
+    dt = resolver_data("depois de amanhã ao meio-dia", base=BASE)
+    assert dt is not None
+    assert (dt.day, dt.hour) == (12, 12)
+
+
+def test_que_vem_e_a_proxima_ocorrencia():
+    """Decisão de produto: 'sexta que vem', numa segunda, é a sexta desta semana."""
+    dt = resolver_data("sexta que vem às 19h", base=BASE)
+    assert dt is not None
+    assert (dt.day, dt.hour) == (14, 19)
+
+
+def test_dia_N_de_mes():
+    dt = resolver_data("dia 5 de outubro às 15h", base=BASE)
+    assert dt is not None
+    assert (dt.month, dt.day, dt.hour) == (10, 5, 15)
+
+
 def test_periodo_sem_hora_continua_ambiguo():
     """'de manhã' sozinho NÃO tem hora — pedir esclarecimento segue sendo o certo."""
     assert resolver_data("amanhã de manhã", base=BASE) is None

@@ -18,6 +18,7 @@ dependencies = [
     "dateparser>=1.2",
     "python-dotenv>=1.0",
     "tzdata",                          # ZoneInfo no Windows não tem base de fusos própria
+    "alembic>=1.19.1",
 ]
 
 [dependency-groups]

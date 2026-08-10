@@ -16,6 +16,7 @@ from .config import settings
 from .db.models import Reminder
 from .db.session import Sessao
 from .notify import notificar
+from .observability import session_id_de
 
 log = logging.getLogger(__name__)
 _scheduler: AsyncIOScheduler | None = None
@@ -37,7 +38,15 @@ async def _disparar(reminder_id: int) -> None:
         ok = await notificar(lembrete.member_id, f"⏰ Lembrete: {lembrete.texto}")
         lembrete.status = "enviado" if ok else "falhou"
         await s.commit()
-    await emitir("reminder_fired", lembrete.member_id, texto=lembrete.texto, ok=ok)
+    # Sem turn_id: disparo proativo não nasce de uma pergunta. Mas com session_id,
+    # para caber na conversa do dia daquele membro.
+    await emitir(
+        "reminder_fired",
+        lembrete.member_id,
+        session_id_de(lembrete.member_id),
+        texto=lembrete.texto,
+        ok=ok,
+    )
 
 
 def agendar(reminder_id: int, quando_utc: datetime) -> None:

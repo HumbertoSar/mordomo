@@ -7,6 +7,7 @@ import logging
 from .analytics import emitir
 from .channels.contract import ChannelAdapter
 from .identity import identidade_do_membro
+from .observability import session_id_de
 
 log = logging.getLogger(__name__)
 _adapters: dict[str, ChannelAdapter] = {}
@@ -22,7 +23,13 @@ async def notificar(member_id: int, texto: str) -> bool:
         ext = await identidade_do_membro(member_id, canal)
         if ext:
             await adapter.notificar(member_id, texto)
-            await emitir("proactive_sent", member_id, canal=canal, tamanho=len(texto))
+            await emitir(
+                "proactive_sent",
+                member_id,
+                session_id_de(member_id),
+                canal=canal,
+                tamanho=len(texto),
+            )
             return True
     log.warning("Membro %s sem canal para notificação proativa", member_id)
     return False

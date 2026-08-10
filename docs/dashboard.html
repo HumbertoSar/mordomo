@@ -1,0 +1,106 @@
+<title>Mordomo — gestão à vista</title>
+<style>
+  :root {
+    --fundo:#ffffff; --texto:#1a1d21; --suave:#6b7280; --linha:#e5e7eb; --cartao:#f8fafc;
+    --alerta:#c4453f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --fundo:#0f1216; --texto:#e6e8eb; --suave:#9aa3ad; --linha:#232a32; --cartao:#161b22; }
+  }
+  :root[data-theme="dark"] {
+    --fundo:#0f1216; --texto:#e6e8eb; --suave:#9aa3ad; --linha:#232a32; --cartao:#161b22;
+  }
+  :root[data-theme="light"] {
+    --fundo:#ffffff; --texto:#1a1d21; --suave:#6b7280; --linha:#e5e7eb; --cartao:#f8fafc;
+  }
+  body { background:var(--fundo); color:var(--texto); margin:0; padding:2rem 1.25rem 4rem;
+         font:15px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif; }
+  .wrap { max-width:1000px; margin:0 auto; }
+  h1 { font-size:1.6rem; margin:0 0 .25rem; letter-spacing:-.02em; }
+  h2 { font-size:1rem; margin:2.5rem 0 .75rem; text-transform:uppercase;
+        letter-spacing:.08em; color:var(--suave); font-weight:600; }
+  .sub { color:var(--suave); margin:0 0 2rem; font-size:.9rem; }
+  .kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:.75rem; }
+  .kpi { background:var(--cartao); border:1px solid var(--linha); border-radius:10px;
+          padding:.85rem .95rem; display:flex; flex-direction:column; gap:.15rem; }
+  .kpi.alerta { border-color:var(--alerta); }
+  .kpi-val { font-size:1.5rem; font-weight:650; letter-spacing:-.02em; }
+  .kpi-rot { color:var(--suave); font-size:.8rem; }
+  .kpi-nota { color:var(--suave); font-size:.7rem; opacity:.8; }
+  .card { background:var(--cartao); border:1px solid var(--linha); border-radius:10px; padding:1rem 1.1rem; }
+  .gr { width:100%; height:auto; max-height:180px; }
+  .gr .val { font-size:9px; fill:var(--suave); text-anchor:middle; }
+  .gr .eixo { font-size:9px; fill:var(--suave); text-anchor:middle; }
+  .hb { display:grid; grid-template-columns:minmax(90px,180px) 1fr auto; gap:.6rem;
+         align-items:center; margin:.35rem 0; font-size:.88rem; }
+  .hb-rot { color:var(--suave); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .hb-trilho { background:var(--linha); border-radius:4px; height:12px; overflow:hidden; }
+  .hb-cheio { display:block; height:100%; border-radius:4px; }
+  .hb-val { font-variant-numeric:tabular-nums; color:var(--suave); font-size:.82rem; }
+  .rolar { overflow-x:auto; }
+  table { border-collapse:collapse; width:100%; font-size:.88rem; }
+  th,td { text-align:left; padding:.45rem .6rem; border-bottom:1px solid var(--linha); }
+  th { color:var(--suave); font-weight:600; font-size:.78rem; text-transform:uppercase;
+        letter-spacing:.05em; }
+  td.num { text-align:right; font-variant-numeric:tabular-nums; }
+  .vazio { color:var(--suave); font-style:italic; font-size:.88rem; }
+  .aviso { color:var(--alerta); font-size:.85rem; }
+  .rodape { margin-top:3rem; padding-top:1rem; border-top:1px solid var(--linha);
+             color:var(--suave); font-size:.8rem; }
+  code { background:var(--linha); padding:.1rem .3rem; border-radius:4px; font-size:.85em; }
+</style>
+<div class="wrap">
+  <h1>🤵 Mordomo da Família — gestão à vista</h1>
+  <p class="sub">Últimos 30 dias · gerado em 10/08/2026 14:57
+     (-03)</p>
+
+  <div class="kpis"><div class="kpi"><span class="kpi-val">0</span><span class="kpi-rot">turnos</span><span class="kpi-nota">últimos 30 dias</span></div><div class="kpi"><span class="kpi-val">—</span><span class="kpi-rot">latência p50</span></div><div class="kpi"><span class="kpi-val">—</span><span class="kpi-rot">latência p95</span><span class="kpi-nota">cauda</span></div><div class="kpi"><span class="kpi-val">US$ 0.0000</span><span class="kpi-rot">custo total</span></div><div class="kpi"><span class="kpi-val">—</span><span class="kpi-rot">custo por turno</span></div><div class="kpi"><span class="kpi-val">0%</span><span class="kpi-rot">taxa de erro</span></div><div class="kpi alerta"><span class="kpi-val">14</span><span class="kpi-rot">eventos órfãos</span><span class="kpi-nota">sem turn_id — tem que ser 0</span></div></div>
+
+  <h2>Turnos por dia</h2>
+  <div class="card rolar"><p class='vazio'>Sem dados no período.</p></div>
+
+  <h2>Distribuição de latência</h2>
+  <div class="card">
+    <p class='vazio'>Sem turnos no período.</p>
+    <p class="vazio">p50 — · p95 — ·
+       máx —</p>
+  </div>
+
+  <h2>Funil do turno</h2>
+  <div class="card"><div class="hb"><span class="hb-rot">recebeu mensagem</span><span class="hb-trilho"><span class="hb-cheio" style="width:0.0%;background:#4f7cff"></span></span><span class="hb-val">0 turnos</span></div><div class="hb"><span class="hb-rot">roteou</span><span class="hb-trilho"><span class="hb-cheio" style="width:0.0%;background:#22a06b"></span></span><span class="hb-val">0 turnos</span></div><div class="hb"><span class="hb-rot">usou ferramenta</span><span class="hb-trilho"><span class="hb-cheio" style="width:0.0%;background:#e8912d"></span></span><span class="hb-val">0 turnos</span></div><div class="hb"><span class="hb-rot">concluiu o turno</span><span class="hb-trilho"><span class="hb-cheio" style="width:0.0%;background:#c4453f"></span></span><span class="hb-val">0 turnos</span></div><div class="hb"><span class="hb-rot">respondeu no canal</span><span class="hb-trilho"><span class="hb-cheio" style="width:0.0%;background:#8b5cf6"></span></span><span class="hb-val">0 turnos</span></div></div>
+
+  <h2>Para onde o supervisor roteou</h2>
+  <div class="card"><div class="hb"><span class="hb-rot">lembretes</span><span class="hb-trilho"><span class="hb-cheio" style="width:100.0%;background:#4f7cff"></span></span><span class="hb-val">2</span></div><div class="hb"><span class="hb-rot">responder</span><span class="hb-trilho"><span class="hb-cheio" style="width:50.0%;background:#22a06b"></span></span><span class="hb-val">1</span></div></div>
+
+  <h2>Custo por nó — rotear vs. executar</h2>
+  <div class="card">
+    <p class='vazio'>Sem dados no período.</p>
+    <div class="rolar"><table>
+      <tr><th>nó</th><th>modelo</th><th>chamadas</th><th>tokens in</th><th>tokens out</th><th>custo</th></tr>
+      <tr><td colspan='6' class='vazio'>Nenhuma chamada de LLM no período.</td></tr>
+    </table></div>
+    
+  </div>
+
+  <h2>Ferramentas</h2>
+  <div class="card">
+    <div class="rolar"><table>
+      <tr><th>tool</th><th>ok</th><th>erro</th><th>sucesso</th></tr>
+      <tr><td>criar_lembrete</td><td class='num'>0</td><td class='num'>1</td><td class='num'>0%</td></tr>
+    </table></div>
+    <h2 style="margin-top:1.5rem">Motivos de falha</h2>
+    <div class="hb"><span class="hb-rot">data_nao_entendida</span><span class="hb-trilho"><span class="hb-cheio" style="width:100.0%;background:#4f7cff"></span></span><span class="hb-val">1</span></div>
+  </div>
+
+  <h2>Lembretes e saúde</h2>
+  <div class="card">
+    <div class="hb"><span class="hb-rot">lembretes criados</span><span class="hb-trilho"><span class="hb-cheio" style="width:100.0%;background:#4f7cff"></span></span><span class="hb-val">1</span></div><div class="hb"><span class="hb-rot">lembretes disparados</span><span class="hb-trilho"><span class="hb-cheio" style="width:0.0%;background:#22a06b"></span></span><span class="hb-val">0</span></div><div class="hb"><span class="hb-rot">erros no grafo</span><span class="hb-trilho"><span class="hb-cheio" style="width:0.0%;background:#e8912d"></span></span><span class="hb-val">0</span></div><div class="hb"><span class="hb-rot">falhas de parse do roteador</span><span class="hb-trilho"><span class="hb-cheio" style="width:0.0%;background:#c4453f"></span></span><span class="hb-val">0</span></div><div class="hb"><span class="hb-rot">mensagens de desconhecidos</span><span class="hb-trilho"><span class="hb-cheio" style="width:100.0%;background:#8b5cf6"></span></span><span class="hb-val">1</span></div>
+  </div>
+
+  <p class="rodape">
+    Gerado por <code>mordomo.reporting.dashboard</code> a partir de agregações sobre
+    <code>product_events</code> — nenhum conteúdo de conversa aparece aqui.
+    Custo calculado na leitura, a partir dos tokens gravados, com a tabela de
+    <code>reporting/precos.py</code>.
+  </p>
+</div>

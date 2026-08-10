@@ -1,5 +1,6 @@
 """Subagente Agenda — compromissos da família (agenda compartilhada)."""
 
+from ..analytics import emitir_de, uso_de
 from ..config import settings
 from ..core.llm import chat_model, criar_agente
 from ..core.state import EstadoMordomo
@@ -27,5 +28,12 @@ def agente_agenda():
 
 
 async def no_agenda(state: EstadoMordomo, config) -> dict:
+    anteriores = len(state["messages"])
     resultado = await agente_agenda().ainvoke({"messages": state["messages"]}, config)
+
+    # Ver nota em agents/lembretes.py: contar só o que este nó gerou.
+    novas = resultado["messages"][anteriores:] or resultado["messages"][-1:]
+    if (uso := uso_de(novas)) is not None:
+        await emitir_de(config, "llm_usage", no="agenda", **uso)
+
     return {"messages": [resultado["messages"][-1]]}

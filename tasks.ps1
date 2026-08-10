@@ -11,6 +11,10 @@
 #   .\tasks.ps1 lint        ruff
 #
 # Argumentos extras são repassados: .\tasks.ps1 evals --com-llm
+#
+# "A execução de scripts foi desabilitada neste sistema"? Libere uma vez:
+#   Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+# ou chame: powershell -ExecutionPolicy Bypass -File .\tasks.ps1 <alvo>
 
 param(
     [Parameter(Position = 0)]

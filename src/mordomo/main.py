@@ -11,6 +11,7 @@ from . import scheduler
 from .channels.telegram import TelegramAdapter
 from .config import settings
 from .core.graph import build_graph
+from .db.migracoes import aplicar_migracoes
 from .db.session import criar_tabelas
 from .observability import checar_langfuse
 from .plataforma import preparar
@@ -28,7 +29,9 @@ async def main() -> None:
     if not settings.openrouter_api_key:
         sys.exit("Defina OPENROUTER_API_KEY no .env (https://openrouter.ai/keys).")
 
-    await criar_tabelas()
+    if not settings.database_url.startswith("postgresql"):
+        # SQLite (dev/teste): sem migrações, o create_all resolve.
+        await criar_tabelas()
     checar_langfuse()  # falha de observabilidade tem que aparecer no boot, não em setembro
 
     async with AsyncExitStack() as stack:
@@ -58,4 +61,9 @@ async def main() -> None:
 
 if __name__ == "__main__":
     preparar()  # event loop + UTF-8 (Windows) — antes do asyncio.run
+    if settings.database_url.startswith("postgresql"):
+        # Fora do asyncio.run de propósito: o env.py do Alembic abre o próprio
+        # event loop e não pode ser chamado de dentro de um já rodando.
+        logging.basicConfig(level=logging.INFO)
+        aplicar_migracoes()
     asyncio.run(main())

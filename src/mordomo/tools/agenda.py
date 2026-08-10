@@ -12,7 +12,7 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 from sqlalchemy import select
 
-from ..analytics import emitir
+from ..analytics import emitir_de
 from ..config import settings
 from ..db.models import FamilyEvent
 from ..db.session import Sessao
@@ -33,19 +33,19 @@ async def criar_evento(titulo: str, quando: str, local: str | None, config: Runn
         local: opcional (ex. "clínica do centro").
     """
     member_id = config["configurable"]["member_id"]
-    await emitir("tool_called", member_id, tool="criar_evento", quando=quando)
+    await emitir_de(config, "tool_called", tool="criar_evento", quando=quando)
     dt = resolver_data(quando)
     if dt is None:
-        await emitir(
-            "tool_result", member_id, tool="criar_evento", ok=False, motivo="data_nao_entendida"
+        await emitir_de(
+            config, "tool_result", tool="criar_evento", ok=False, motivo="data_nao_entendida"
         )
         return (
             f"NÃO ENTENDI a expressão de tempo '{quando}'. "
             "Pergunte ao usuário a data e a hora exatas (não invente!)."
         )
     if dt <= datetime.now(UTC).astimezone(dt.tzinfo):
-        await emitir(
-            "tool_result", member_id, tool="criar_evento", ok=False, motivo="data_no_passado"
+        await emitir_de(
+            config, "tool_result", tool="criar_evento", ok=False, motivo="data_no_passado"
         )
         return f"'{quando}' resolveu para {_fmt(dt)}, que já passou. Confirme a data com o usuário."
     async with Sessao() as s:
@@ -55,7 +55,7 @@ async def criar_evento(titulo: str, quando: str, local: str | None, config: Runn
         s.add(ev)
         await s.commit()
         await s.refresh(ev)
-    await emitir("tool_result", member_id, tool="criar_evento", ok=True, evento_id=ev.id)
+    await emitir_de(config, "tool_result", tool="criar_evento", ok=True, evento_id=ev.id)
     sufixo = f" ({local})" if local else ""
     return f"Evento criado: {titulo} — {_fmt(dt)}{sufixo}"
 
@@ -63,8 +63,9 @@ async def criar_evento(titulo: str, quando: str, local: str | None, config: Runn
 @tool
 async def listar_agenda(dias: int, config: RunnableConfig) -> str:
     """Lista os compromissos da família nos próximos N dias (use 1 para hoje, 7 para a semana)."""
-    member_id = config["configurable"]["member_id"]
-    await emitir("tool_called", member_id, tool="listar_agenda", dias=dias)
+    # Sem member_id aqui de propósito: a agenda é COMPARTILHADA (ADR-003), e
+    # quem pediu já entra no evento via emitir_de.
+    await emitir_de(config, "tool_called", tool="listar_agenda", dias=dias)
     agora = datetime.now(UTC)
     ate = agora + timedelta(days=max(1, dias))
     async with Sessao() as s:
@@ -74,6 +75,7 @@ async def listar_agenda(dias: int, config: RunnableConfig) -> str:
             .order_by(FamilyEvent.inicio_utc)
         )
         eventos = list(res.scalars())
+    await emitir_de(config, "tool_result", tool="listar_agenda", ok=True, n=len(eventos))
     if not eventos:
         return f"Agenda livre nos próximos {dias} dia(s)."
     return "\n".join(

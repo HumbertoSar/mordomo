@@ -1,6 +1,7 @@
 """Subagente Lembretes — ReAct (LLM + tools em loop) sem checkpointer próprio:
 o histórico mora no grafo pai; aqui cada chamada é stateless."""
 
+from ..analytics import emitir_de, uso_de
 from ..config import settings
 from ..core.llm import chat_model, criar_agente
 from ..core.state import EstadoMordomo
@@ -29,5 +30,13 @@ def agente_lembretes():
 
 
 async def no_lembretes(state: EstadoMordomo, config) -> dict:
+    anteriores = len(state["messages"])
     resultado = await agente_lembretes().ainvoke({"messages": state["messages"]}, config)
+
+    # Só as mensagens que ESTE nó produziu: as antigas já carregam o
+    # usage_metadata do turno em que nasceram e seriam contadas duas vezes.
+    novas = resultado["messages"][anteriores:] or resultado["messages"][-1:]
+    if (uso := uso_de(novas)) is not None:
+        await emitir_de(config, "llm_usage", no="lembretes", **uso)
+
     return {"messages": [resultado["messages"][-1]]}

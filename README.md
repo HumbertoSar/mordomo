@@ -35,8 +35,13 @@ make run                     # 🤵 a postos
 .\tasks.ps1 install ; .\tasks.ps1 up ; .\tasks.ps1 db-init ; .\tasks.ps1 run
 ```
 
-Se o projeto estiver dentro do OneDrive, exclua `.venv/` da sincronização —
-senão o `uv sync` esbarra em arquivos travados.
+Duas pedras no caminho no Windows, ambas de primeira viagem:
+
+- Se der *"a execução de scripts foi desabilitada neste sistema"*, libere scripts
+  locais uma vez só: `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`
+  (ou chame com `powershell -ExecutionPolicy Bypass -File .\tasks.ps1 <alvo>`).
+- Se o projeto estiver dentro do OneDrive, **exclua `.venv/` da sincronização** —
+  senão o `uv sync` falha com "Acesso negado" ao mexer em arquivo travado.
 
 Seu telegram-id: mande /start ao bot e veja o log de `unknown_user`, ou use o
 @userinfobot. Langfuse (opcional, recomendado): crie projeto grátis em
