@@ -52,13 +52,14 @@ def eval_datas() -> float:
 async def eval_roteamento() -> float:
     from mordomo.agents.supervisor import PROMPT_SUPERVISOR, Decisao
     from mordomo.config import settings
+    from mordomo.core.contexto import janela
     from mordomo.core.llm import chat_model
 
     if not settings.openrouter_api_key:
         print("\n── Eval: roteamento ── PULADO (defina OPENROUTER_API_KEY)")
         return 0.0
 
-    from langchain_core.messages import HumanMessage, SystemMessage
+    from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
     dados = json.loads((DATASETS / "roteamento.json").read_text(encoding="utf-8"))
     modelo = chat_model(settings.model_supervisor).with_structured_output(Decisao)
@@ -66,7 +67,14 @@ async def eval_roteamento() -> float:
 
     acertos, linhas = 0, []
     for caso in dados["casos"]:
-        decisao = await modelo.ainvoke([sistema, HumanMessage(caso["frase"])])
+        # Casos "multiturno" trazem histórico — e passam pela MESMA janela que o
+        # supervisor usa em produção (ADR-007): o eval testa o caminho real.
+        mensagens = []
+        for m in caso.get("historico", []):
+            tipo = HumanMessage if m["papel"] == "usuario" else AIMessage
+            mensagens.append(tipo(m["texto"]))
+        mensagens.append(HumanMessage(caso["frase"]))
+        decisao = await modelo.ainvoke([sistema, *janela(mensagens)])
         ok = decisao.destino == caso["esperado"]
         acertos += ok
         linhas.append(f"  {'✓' if ok else '✗'} {caso['frase']!r:52} esperado={caso['esperado']:10} obtido={decisao.destino}")

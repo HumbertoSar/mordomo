@@ -13,6 +13,34 @@
     { "frase": "obrigado!", "esperado": "responder" },
     { "frase": "me indica um filme pra hoje à noite", "esperado": "responder", "nota": "Curador chega na fase 2 — por ora é fora de escopo" },
     { "frase": "manda um email pra escola avisando que o João faltou", "esperado": "responder", "nota": "Mensageiro chega na fase 2" },
-    { "frase": "marca aí", "esperado": "responder", "tipo": "dificil", "nota": "ambíguo de verdade → pedir esclarecimento" }
+    { "frase": "marca aí", "esperado": "responder", "tipo": "dificil", "nota": "ambíguo de verdade → pedir esclarecimento" },
+    {
+      "frase": "cancela o segundo",
+      "esperado": "lembretes",
+      "tipo": "multiturno",
+      "nota": "só faz sentido com o histórico — é o caso que a janela de contexto (ADR-007) NÃO pode quebrar",
+      "historico": [
+        { "papel": "usuario", "texto": "que lembretes eu tenho?" },
+        { "papel": "mordomo", "texto": "O senhor tem dois: #1 pagar o boleto (11/08 às 08:00) e #2 dentista (14/08 às 14:00)." }
+      ]
+    },
+    {
+      "frase": "muda pra sábado de manhã",
+      "esperado": "agenda",
+      "tipo": "multiturno",
+      "historico": [
+        { "papel": "usuario", "texto": "marca almoço na casa da vovó domingo meio-dia" },
+        { "papel": "mordomo", "texto": "Anotado! Almoço na casa da vovó, domingo às 12:00." }
+      ]
+    },
+    {
+      "frase": "e no domingo?",
+      "esperado": "agenda",
+      "tipo": "multiturno",
+      "historico": [
+        { "papel": "usuario", "texto": "o que temos no sábado?" },
+        { "papel": "mordomo", "texto": "Sábado: futebol do João às 09:00 e jantar com os Silva às 20:00." }
+      ]
+    }
   ]
 }

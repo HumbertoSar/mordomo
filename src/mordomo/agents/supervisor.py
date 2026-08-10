@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from ..analytics import emitir_de, uso_de
 from ..config import settings
+from ..core.contexto import janela
 from ..core.llm import chat_model
 from ..core.state import EstadoMordomo
 
@@ -61,7 +62,9 @@ async def no_supervisor(
             nome=state.get("member_nome", "?"), papel=state.get("member_papel", "?")
         )
     )
-    saida = await modelo.ainvoke([sistema, *state["messages"]], config)
+    # Janela (ADR-007): rotear entre três destinos não precisa da conversa
+    # inteira — e sem isto a entrada crescia ~72 tokens/turno, para sempre.
+    saida = await modelo.ainvoke([sistema, *janela(state["messages"])], config)
 
     bruto = saida.get("raw") if isinstance(saida, dict) else None
     if (uso := uso_de([bruto] if bruto is not None else [])) is not None:

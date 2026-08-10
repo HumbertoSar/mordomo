@@ -2,6 +2,7 @@
 
 from ..analytics import emitir_de, uso_de
 from ..config import settings
+from ..core.contexto import janela
 from ..core.llm import chat_model, criar_agente
 from ..core.state import EstadoMordomo
 from ..tools.agenda import TOOLS_AGENDA
@@ -28,8 +29,10 @@ def agente_agenda():
 
 
 async def no_agenda(state: EstadoMordomo, config) -> dict:
-    anteriores = len(state["messages"])
-    resultado = await agente_agenda().ainvoke({"messages": state["messages"]}, config)
+    # Janela (ADR-007) — ver nota em agents/lembretes.py.
+    entrada = janela(state["messages"])
+    anteriores = len(entrada)
+    resultado = await agente_agenda().ainvoke({"messages": entrada}, config)
 
     # Ver nota em agents/lembretes.py: contar só o que este nó gerou.
     novas = resultado["messages"][anteriores:] or resultado["messages"][-1:]

@@ -3,6 +3,7 @@ o histórico mora no grafo pai; aqui cada chamada é stateless."""
 
 from ..analytics import emitir_de, uso_de
 from ..config import settings
+from ..core.contexto import janela
 from ..core.llm import chat_model, criar_agente
 from ..core.state import EstadoMordomo
 from ..tools.lembretes import TOOLS_LEMBRETES
@@ -30,8 +31,11 @@ def agente_lembretes():
 
 
 async def no_lembretes(state: EstadoMordomo, config) -> dict:
-    anteriores = len(state["messages"])
-    resultado = await agente_lembretes().ainvoke({"messages": state["messages"]}, config)
+    # Janela (ADR-007): o subagente herda o histórico via grafo pai; ao LLM vai
+    # só o recente. O checkpointer segue guardando tudo.
+    entrada = janela(state["messages"])
+    anteriores = len(entrada)
+    resultado = await agente_lembretes().ainvoke({"messages": entrada}, config)
 
     # Só as mensagens que ESTE nó produziu: as antigas já carregam o
     # usage_metadata do turno em que nasceram e seriam contadas duas vezes.

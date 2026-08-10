@@ -35,6 +35,12 @@ class Settings(BaseSettings):
     llm_max_retries: int = 2
     openrouter_provider_sort: str = "latency"  # "latency" | "throughput" | "price" | "" (sem preferência)
 
+    # Contexto por chamada (ADR-007). O histórico completo fica no checkpointer;
+    # ao LLM vão só as últimas N mensagens. Medido no primeiro dia de uso real:
+    # sem janela, a entrada do supervisor crescia ~72 tokens/turno, sem teto.
+    # 0 = desligado (comportamento antigo).
+    contexto_janela_mensagens: int = 8
+
     # Comportamento
     tz_familia: str = "America/Sao_Paulo"
     debounce_segundos: float = 1.5
