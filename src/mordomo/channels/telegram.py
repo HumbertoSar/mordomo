@@ -11,6 +11,7 @@ Responsabilidades do adapter (e SÓ dele — ADR-001):
 """
 
 import asyncio
+import io
 import logging
 from datetime import UTC, datetime
 
@@ -24,6 +25,7 @@ from ..core.pipeline import processar_entrada
 from ..identity import identidade_do_membro, resolver_membro
 from ..notify import registrar_adapter
 from ..observability import session_id_de
+from . import transcricao
 from .contract import (
     TELEGRAM_CAPS,
     Choice,
@@ -47,6 +49,7 @@ class TelegramAdapter:
         self.dp = Dispatcher()
         self._buffers: dict[int, list[str]] = {}
         self._tarefas: dict[int, asyncio.Task] = {}
+        self._veio_audio: dict[int, bool] = {}  # algum item do buffer nasceu de voz?
         self._registrar_handlers()
         registrar_adapter(self)
 
@@ -63,7 +66,23 @@ class TelegramAdapter:
 
         @self.dp.message(F.voice | F.audio)
         async def audio(msg: Message) -> None:
-            await msg.answer("Áudio ainda não entra na minha alçada — chega na fase 2! Por ora, escreva. 🙏")
+            # Transcrição é responsabilidade do ADAPTER (ADR-001): o núcleo só
+            # vê texto. Sem GROQ_API_KEY, recusa simpática — o resto funciona.
+            if not transcricao.disponivel():
+                await msg.answer(
+                    "Áudio ainda não entra na minha alçada — por ora, escreva. 🙏"
+                )
+                return
+            arquivo = msg.voice or msg.audio
+            buffer = io.BytesIO()
+            await self.bot.download(arquivo.file_id, destination=buffer)
+            texto = await transcricao.transcrever(buffer.getvalue())
+            if not texto:
+                await msg.answer("Não consegui entender o áudio. 😅 Pode escrever?")
+                return
+            await self._receber(
+                msg.chat.id, msg.from_user.id, texto, str(msg.message_id), de_audio=True
+            )
 
         @self.dp.message(F.text)
         async def texto(msg: Message) -> None:
@@ -77,8 +96,12 @@ class TelegramAdapter:
 
     # ── Debounce + pipeline ──────────────────────────────────────────────
 
-    async def _receber(self, chat_id: int, user_id: int, texto: str, message_id: str) -> None:
+    async def _receber(
+        self, chat_id: int, user_id: int, texto: str, message_id: str, de_audio: bool = False
+    ) -> None:
         self._buffers.setdefault(user_id, []).append(texto)
+        if de_audio:
+            self._veio_audio[user_id] = True
         if tarefa := self._tarefas.get(user_id):
             tarefa.cancel()
         self._tarefas[user_id] = asyncio.create_task(
@@ -92,6 +115,7 @@ class TelegramAdapter:
             return  # chegou mais mensagem; o novo flush cuida de tudo
         textos = self._buffers.pop(user_id, [])
         self._tarefas.pop(user_id, None)
+        veio_de_audio = self._veio_audio.pop(user_id, False)
         if not textos:
             return
 
@@ -111,6 +135,7 @@ class TelegramAdapter:
             texto="\n".join(textos),
             message_id=message_id,
             timestamp=datetime.now(UTC),
+            veio_de_audio=veio_de_audio,
         )
         await self.bot.send_chat_action(chat_id, "typing")
         turn_id, respostas = await processar_entrada(membro, inbound, self.grafo)

@@ -1,0 +1,3 @@
+ts,commit,eval,acertos,total,acuracia,detalhe
+2026-08-10T19:52:20,1955f22,datas_ptbr,21,21,1.0000,resolver_data determinístico
+2026-08-10T19:52:52,1955f22,roteamento,15,16,0.9375,anthropic/claude-haiku-4.5

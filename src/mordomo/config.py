@@ -19,6 +19,11 @@ class Settings(BaseSettings):
     model_supervisor: str = "anthropic/claude-haiku-4.5"
     model_agente: str = "anthropic/claude-sonnet-4.5"
 
+    # Transcrição de áudio (Groq/Whisper). Vazio = áudio recusado com simpatia;
+    # o resto do bot funciona igual (mesmo padrão do Langfuse).
+    groq_api_key: str = ""
+    groq_modelo_transcricao: str = "whisper-large-v3-turbo"
+
     # Banco
     database_url: str = "postgresql+psycopg://mordomo:mordomo@localhost:5432/mordomo"
 

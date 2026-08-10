@@ -94,7 +94,12 @@ notify.py: proatividade abstraída (scheduler → canal)  ·  identity.py: (cana
 Instrumentação fechada: `turn_id` em todo evento, `turn_completed` com latência,
 `llm_usage` por nó (custo de rotear vs. executar), `orchestrator_parse_error`.
 Leitura em `reporting/` (queries + `docs/dashboard.html` autocontido). Alembic
-com baseline. Backup em `scripts/backup.ps1`. ADR-006 sobre latência.
+com baseline. Backup em `scripts/backup.ps1`. ADR-006 sobre latência. ADR-007:
+janela de contexto (o histórico fica no checkpointer; ao LLM vão as últimas N).
+Evals com histórico (`--salvar` → `evals/results/history.csv`, delta automático).
+Grafo coberto sem rede (`tests/test_grafo.py`, fakes do structured output).
+Áudio: Groq/Whisper no adapter (`channels/transcricao.py`; sem GROQ_API_KEY =
+recusa simpática).
 
 ## Roadmap (o que falta — fase 2+)
 
@@ -102,7 +107,6 @@ com baseline. Backup em `scripts/backup.ps1`. ADR-006 sobre latência.
 - [ ] Subagente Tarefas (listas por pessoa + compartilhadas)
 - [ ] Subagente Curador (TMDB + onde assistir no BR, perfil por membro)
 - [ ] Subagente Mensageiro (Gmail) com `interrupt()` — HITL de verdade
-- [ ] Áudio: transcrição Whisper via Groq no adapter (WhatsApp brasileiro = áudio)
 - [ ] Recorrência de lembretes ("todo dia 5") + briefing matinal (job proativo)
 - [ ] `/vincular` (onboarding sem seed script) + permissões por papel de fato
 - [ ] Google Calendar no lugar da tabela própria — decidir ADR-004 (nativa vs. MCP)

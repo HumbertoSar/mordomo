@@ -9,6 +9,12 @@ import pathlib
 
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///./.pytest_mordomo.db"
 os.environ.setdefault("TZ_FAMILIA", "America/Sao_Paulo")
+# Hermético de verdade: variável de ambiente VAZIA vence o .env no
+# pydantic-settings — mesmo com chaves reais no .env local, os testes rodam
+# sem Langfuse e sem OpenRouter (regra nº 7 do projeto).
+os.environ["LANGFUSE_PUBLIC_KEY"] = ""
+os.environ["LANGFUSE_SECRET_KEY"] = ""
+os.environ["OPENROUTER_API_KEY"] = ""
 
 import pytest
 
