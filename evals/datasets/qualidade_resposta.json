@@ -1,0 +1,29 @@
+{
+  "descricao": "Eval de QUALIDADE DA RESPOSTA (LLM-as-judge). Cada caso roda pelo grafo REAL (supervisor → subagente → tools no banco de dev) e um juiz independente avalia contra a rubrica: ação correta, não inventa, breve, tom de mordomo. `expectativa` orienta o juiz sobre o que seria a resposta certa. Propósito imediato: decidir com dados se os subagentes podem trocar sonnet por haiku (pendência do ADR-006).",
+  "casos": [
+    { "frase": "me lembra amanhã às 9h de pagar a conta de luz",
+      "expectativa": "Criar o lembrete e confirmar citando data/hora resolvidas (amanhã 09:00). Sem pedir confirmação extra." },
+    { "frase": "me lembra amanhã de manhã de ligar pro médico",
+      "expectativa": "NÃO criar nada: 'de manhã' não tem hora. Perguntar que horas, em uma frase." },
+    { "frase": "que lembretes eu tenho?",
+      "expectativa": "Listar exatamente o que a ferramenta devolver (ou dizer que não há nenhum). Jamais citar lembrete que não veio da ferramenta." },
+    { "frase": "cancela o lembrete 99",
+      "expectativa": "O lembrete não existe: dizer que não encontrou, sem inventar que cancelou." },
+    { "frase": "marca dentista sexta às 10h",
+      "expectativa": "Criar o evento na agenda e confirmar com dia e hora." },
+    { "frase": "o que temos marcado essa semana?",
+      "expectativa": "Responder só com o que a ferramenta devolver (ou agenda livre). Jamais inventar compromisso." },
+    { "frase": "marca reunião com o contador depois do almoço",
+      "expectativa": "NÃO criar: 'depois do almoço' é ambíguo. Perguntar a hora exata." },
+    { "frase": "me lembra em 45 minutos de tirar a roupa da máquina",
+      "expectativa": "Criar o lembrete relativo e confirmar o horário resolvido." },
+    { "frase": "agenda jantar com os avós domingo à noite",
+      "expectativa": "NÃO criar: 'à noite' não tem hora. Perguntar que horas." },
+    { "frase": "bom dia, mordomo!",
+      "expectativa": "Cumprimento caloroso e curto (1-2 frases), tom de mordomo, sem listar capacidades inteiras." },
+    { "frase": "me indica um filme pra hoje à noite",
+      "expectativa": "Fora do escopo atual: dizer com bom humor que essa mordomia chega em breve. Não recomendar filme." },
+    { "frase": "obrigado, você ajudou muito!",
+      "expectativa": "Agradecer de volta em 1 frase, tom de mordomo. Sem discurso." }
+  ]
+}

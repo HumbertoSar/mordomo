@@ -49,6 +49,27 @@ Tratar como problema de cauda, com a defesa mais barata possível:
   uma tarefa tão estreita ("passe a expressão à tool"), mas trocar sem o eval de
   qualidade de resposta (fase 2) seria trocar latência por regressão silenciosa.
 
+### Atualização 10/08/2026 — experimento executado, decisão: manter sonnet
+
+Com o eval de qualidade pronto (LLM-as-judge, juiz `gemini-2.5-flash` — família
+diferente dos candidatos, de propósito), o experimento rodou pelo grafo REAL:
+
+| agente | qualidade | p50 do turno |
+|---|---|---|
+| sonnet-4.5 | 12/12 (100%) | 5,1s |
+| haiku-4.5 | 11/12 (92%) | 4,5s |
+
+O haiku falhou em "reunião depois do almoço": perguntou o DIA em vez da HORA —
+leve, sem invenção, mas é regressão de qualidade visível à família. E o ganho
+de latência foi só 0,6s no p50: o turno é dominado por supervisor + rede, não
+pelo modelo do subagente. Trocar compraria ~50% de economia num custo que é
+~US$ 4/mês — não paga a regressão. Fica o sonnet; reavaliar se o dataset de
+qualidade crescer com casos reais e o haiku empatar.
+
+Nota de método: a primeira rodada do juiz reprovou o sonnet INJUSTAMENTE
+("inventou" a data que o resolvedor de datas tinha resolvido de 'sexta') —
+calibrar o juiz contra falsos positivos vem ANTES de confiar no veredito.
+
 ## Consequências
 
 + Pior caso percebido limitado, sem tocar em arquitetura.
