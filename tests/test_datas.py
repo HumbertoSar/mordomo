@@ -30,6 +30,24 @@ def test_data_absoluta_dmy():
     assert (dt.month, dt.day, dt.hour) == (9, 15, 10)
 
 
+def test_periodo_da_manha():
+    """Regressão do primeiro bug encontrado em conversa real com a família."""
+    dt = resolver_data("amanhã às 8h da manhã", base=BASE)
+    assert dt is not None
+    assert (dt.day, dt.hour, dt.minute) == (11, 8, 0)
+
+
+def test_periodo_da_noite_vira_24h():
+    dt = resolver_data("hoje às 7 da noite", base=BASE)
+    assert dt is not None
+    assert (dt.day, dt.hour) == (10, 19)
+
+
+def test_periodo_sem_hora_continua_ambiguo():
+    """'de manhã' sozinho NÃO tem hora — pedir esclarecimento segue sendo o certo."""
+    assert resolver_data("amanhã de manhã", base=BASE) is None
+
+
 def test_expressao_sem_sentido_devolve_none():
     assert resolver_data("xyzzy plugh", base=BASE) is None
 

@@ -26,6 +26,31 @@ _SUBSTITUICOES: list[tuple[str, str]] = [
 ]
 
 
+# "8h da manhã", "7 da noite", "3 da tarde": o jeito mais comum de falar hora no
+# Brasil — e o dateparser devolve None em todos. Descoberto na PRIMEIRA conversa
+# real da família: `criar_lembrete` recebeu "amanhã às 8h da manhã" e registrou
+# tool_result motivo=data_nao_entendida em product_events. O agente perguntou a
+# hora em vez de inventar (regra nº 3 funcionando), mas a pergunta era desnecessária.
+_PERIODOS = {"manhã": "am", "madrugada": "am", "tarde": "pm", "noite": "pm"}
+_RGX_PERIODO = re.compile(
+    r"\b(\d{1,2})(?::(\d{2}))?\s*(?:h|hs)?\s+d[ae]\s+(manhã|tarde|noite|madrugada)\b"
+)
+
+
+def _converter_periodo(e: str) -> str:
+    """'8h da manhã' → '08:00' · '7 da noite' → '19:00' (24h explícito)."""
+
+    def sub(m: re.Match) -> str:
+        hora, minuto, periodo = int(m.group(1)), m.group(2) or "00", m.group(3)
+        if _PERIODOS[periodo] == "pm" and hora < 12:
+            hora += 12
+        elif _PERIODOS[periodo] == "am" and hora == 12:
+            hora = 0
+        return f"{hora:02d}:{minuto}"
+
+    return _RGX_PERIODO.sub(sub, e)
+
+
 def _normalizar(expressao: str) -> str:
     e = expressao.strip().lower()
     for rgx, sub in _SUBSTITUICOES:
@@ -34,6 +59,7 @@ def _normalizar(expressao: str) -> str:
     e = re.sub(r"\b(\d{1,2})hs?\b", r"\1:00", e)       # 8h / 8hs → 8:00
     e = re.sub(r"\b([àa]s)\s+(\d{1,2})\b(?!\s*:)", r"\1 \2:00", e)  # às 18 → às 18:00
     e = re.sub(r"\bao\s+(\d{1,2}:\d{2})\b", r"às \1", e)            # ao 12:00 → às 12:00
+    e = _converter_periodo(e)                          # 8:00 da manhã → 08:00
     return e
 
 

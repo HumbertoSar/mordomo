@@ -26,14 +26,44 @@ def langfuse_callbacks() -> list:
         return []
     if _handler is None:
         try:
+            from langfuse import Langfuse
             from langfuse.langchain import CallbackHandler
 
+            # As chaves vivem no `settings` (o pydantic-settings lê o .env), NÃO no
+            # os.environ — ninguém chama load_dotenv aqui. Se deixássemos o SDK se
+            # autoconfigurar pelo ambiente, ele não acharia credencial nenhuma e os
+            # traces sumiriam EM SILÊNCIO. Por isso a inicialização é explícita.
+            Langfuse(
+                public_key=settings.langfuse_public_key,
+                secret_key=settings.langfuse_secret_key,
+                host=settings.langfuse_host,
+            )
             _handler = CallbackHandler()
             log.info("Langfuse ligado (%s)", settings.langfuse_host)
         except Exception:
             log.exception("Langfuse indisponível — seguindo sem traces")
             return []
     return [_handler]
+
+
+def checar_langfuse() -> bool:
+    """Valida as credenciais no boot e diz em ALTO E BOM SOM se a observabilidade
+    está desligada. Observabilidade que falha calada é pior que não ter nenhuma:
+    você descobre semanas depois, sem os traces do período."""
+    if not (settings.langfuse_public_key and settings.langfuse_secret_key):
+        log.warning("Langfuse SEM CHAVES no .env — rodando sem traces (de propósito)")
+        return False
+    if not langfuse_callbacks():
+        return False
+    try:
+        from langfuse import get_client
+
+        get_client().auth_check()
+        log.info("Langfuse: credenciais válidas")
+        return True
+    except Exception as erro:  # noqa: BLE001 — nenhuma falha de trace derruba a conversa
+        log.error("Langfuse: credenciais RECUSADAS (%s) — seguindo sem traces", erro)
+        return False
 
 
 def session_id_de(member_id: int) -> str:

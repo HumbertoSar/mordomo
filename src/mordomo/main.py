@@ -12,6 +12,7 @@ from .channels.telegram import TelegramAdapter
 from .config import settings
 from .core.graph import build_graph
 from .db.session import criar_tabelas
+from .observability import checar_langfuse
 from .plataforma import preparar
 
 log = logging.getLogger("mordomo")
@@ -28,6 +29,7 @@ async def main() -> None:
         sys.exit("Defina OPENROUTER_API_KEY no .env (https://openrouter.ai/keys).")
 
     await criar_tabelas()
+    checar_langfuse()  # falha de observabilidade tem que aparecer no boot, não em setembro
 
     async with AsyncExitStack() as stack:
         # Checkpointer: estado da conversa por membro (thread = membro, ADR-003)
