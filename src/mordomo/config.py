@@ -27,6 +27,14 @@ class Settings(BaseSettings):
     langfuse_secret_key: str = ""
     langfuse_host: str = "https://us.cloud.langfuse.com"
 
+    # Latência do LLM. A mediana do supervisor é ~1,3s, mas medimos uma chamada de
+    # 10,6s no MESMO modelo e prompt (trace do Langfuse): o OpenRouter escolhe entre
+    # hosts para o mesmo modelo e às vezes cai num lento. Esperar não ajuda —
+    # aborta e tenta de novo. Ver docs/adr/006-latencia-e-provedores.md.
+    llm_timeout_segundos: float = 8.0
+    llm_max_retries: int = 2
+    openrouter_provider_sort: str = "latency"  # "latency" | "throughput" | "price" | "" (sem preferência)
+
     # Comportamento
     tz_familia: str = "America/Sao_Paulo"
     debounce_segundos: float = 1.5
