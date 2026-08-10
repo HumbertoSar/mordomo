@@ -93,7 +93,7 @@ def config_invocacao(
         "metadata": {
             "langfuse_user_id": str(member_id),
             "langfuse_session_id": session_id_de(member_id),
-            "langfuse_tags": ["mordomo", "fase1"],
+            "langfuse_tags": ["mordomo", settings.ambiente],
             # Chaves sem prefixo langfuse_ viram metadata do trace: é a ponte
             # entre um trace e as linhas de product_events do mesmo turno.
             "turn_id": turn_id,

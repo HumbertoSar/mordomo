@@ -46,6 +46,11 @@ class Settings(BaseSettings):
     # 0 = desligado (comportamento antigo).
     contexto_janela_mensagens: int = 8
 
+    # Ambiente: separa os traces do Langfuse (tag) entre a máquina de dev e a
+    # VPS — os DADOS já são separados por banco; isto separa a observabilidade.
+    # Default "dev" de propósito: produção é quem declara AMBIENTE=prod.
+    ambiente: str = "dev"
+
     # Comportamento
     tz_familia: str = "America/Sao_Paulo"
     debounce_segundos: float = 1.5
