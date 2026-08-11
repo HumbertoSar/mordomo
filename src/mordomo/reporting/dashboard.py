@@ -283,6 +283,19 @@ def montar_html(d: dict) -> str:
         )
     conv = prod["convites"]
 
+    # A quebra que diz SE os órfãos são bug ativo ou resto histórico: a data do
+    # mais recente é o veredito (antiga = sai da janela sozinho).
+    detalhe_orfaos = ""
+    if d.get("orfaos_detalhe"):
+        detalhe_orfaos = (
+            '<h2 style="margin-top:1.5rem">Eventos órfãos por tipo</h2>'
+            + _barras_horizontais(
+                [(f"{tipo} (último: {ultimo})", n) for tipo, n, ultimo in d["orfaos_detalhe"]]
+            )
+            + "<p class='vazio'>Órfão com data recente = bug de instrumentação ativo; "
+            "com data antiga = resto de antes de um conserto, sai da janela sozinho.</p>"
+        )
+
     s = d["saude"]
     # charset: sem ele o Safari chuta latin-1 e quebra acento/emoji (visto no
     # iPhone do Humberto). viewport: sem ele o celular renderiza a 980px e dá
@@ -443,6 +456,7 @@ def montar_html(d: dict) -> str:
         ("falhas de parse do roteador", s["falhas_de_parse"]),
         ("mensagens de desconhecidos", s["desconhecidos"]),
     ])}
+    {detalhe_orfaos}
     <p class="vazio">Para investigar UMA conversa específica (o replay passo a passo),
        use os traces no Langfuse — este painel mostra o agregado.</p>
   </div>

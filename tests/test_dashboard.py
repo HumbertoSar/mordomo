@@ -84,6 +84,36 @@ async def test_produto_agrega_eventos_de_comando_sem_virar_orfao():
     assert await queries.orfaos(desde) == orfaos_antes
 
 
+async def test_pedido_v1_sem_categoria_conta_como_funcionalidade():
+    # antes do "Pedidos v2" o evento não tinha `categoria` — não pode virar "?"
+    desde = datetime.now(UTC) - timedelta(hours=1)
+    antes = dict(await queries.produto(desde))["pedidos_por_categoria"]
+    n_antes = dict(antes).get("funcionalidade", 0)
+
+    await emitir("feature_requested", 1, "1:t", "t-prod-v1", titulo="pedido v1")
+
+    depois = dict((await queries.produto(desde))["pedidos_por_categoria"])
+    assert depois.get("funcionalidade", 0) == n_antes + 1
+    assert "?" not in depois
+
+
+async def test_orfaos_por_tipo_diagnostica_o_kpi():
+    desde = datetime.now(UTC) - timedelta(hours=1)
+    total_antes = await queries.orfaos(desde)
+
+    # um message_sent sem turn_id — como os do 1º dia de uso da família
+    await emitir("message_sent", 1, "1:t", canal="telegram", tamanho=10)
+
+    assert await queries.orfaos(desde) == total_antes + 1
+    detalhe = await queries.orfaos_por_tipo(desde)
+    por_tipo = {tipo: (n, ultimo) for tipo, n, ultimo in detalhe}
+    assert "message_sent" in por_tipo
+    n, ultimo = por_tipo["message_sent"]
+    assert n >= 1
+    # a data vem no fuso da família, formato ISO — igual ao resto das queries
+    assert ultimo == queries._dia(datetime.now(UTC))
+
+
 async def test_resumo_respeita_a_janela_superior():
     # `ate` no passado: os eventos recém-emitidos ficam FORA do resumo anterior
     agora = datetime.now(UTC)

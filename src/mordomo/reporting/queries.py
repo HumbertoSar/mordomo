@@ -216,8 +216,10 @@ async def produto(desde: datetime) -> dict:
     contagens = await contagem_por_tipo(desde)
 
     pedidos = await _eventos(desde, ("feature_requested",))
+    # Eventos v1 (antes do "Pedidos v2") não têm `categoria` — e o v1 só
+    # existia para funcionalidade, então esse é o rótulo historicamente correto.
     por_categoria = Counter(
-        (e.payload or {}).get("categoria", "?") for e in pedidos
+        (e.payload or {}).get("categoria") or "funcionalidade" for e in pedidos
     )
 
     issues = await _eventos(desde, ("feature_issue_created",))
@@ -328,6 +330,24 @@ async def orfaos(desde: datetime) -> int:
         return res.scalar_one()
 
 
+async def orfaos_por_tipo(desde: datetime) -> list[tuple[str, int, str]]:
+    """A quebra que transforma o KPI de órfãos em DIAGNÓSTICO: (tipo, n, dia do
+    mais recente). Órfão com data recente = bug ativo de instrumentação; com
+    data antiga = resto de antes de um conserto, que sai da janela sozinho."""
+    async with Sessao() as s:
+        res = await s.execute(
+            select(ProductEvent.tipo, func.count(), func.max(ProductEvent.ts))
+            .where(
+                ProductEvent.ts >= desde,
+                ProductEvent.turn_id.is_(None),
+                ProductEvent.tipo.not_in(SEM_TURNO_POR_DESENHO),
+            )
+            .group_by(ProductEvent.tipo)
+            .order_by(func.count().desc())
+        )
+        return [(tipo, n, _dia(ultimo)) for tipo, n, ultimo in res.all()]
+
+
 async def coletar(dias: int = 30) -> dict:
     """Tudo que o dashboard precisa, numa passada."""
     agora = datetime.now(UTC)
@@ -345,6 +365,7 @@ async def coletar(dias: int = 30) -> dict:
         "saude": await saude(desde),
         "funil": await funil(desde),
         "orfaos": await orfaos(desde),
+        "orfaos_detalhe": await orfaos_por_tipo(desde),
         "contagens": await contagem_por_tipo(desde),
         # A MESMA janela, deslocada para trás: é contra ela que os KPIs mostram Δ.
         "anterior": await resumo(agora - timedelta(days=2 * dias), desde),
