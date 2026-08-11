@@ -18,20 +18,29 @@ from .config import settings
 log = logging.getLogger(__name__)
 
 
-def montar_payload(titulo: str, pedido: str, autor: str, papel: str) -> dict:
-    """Corpo da issue — puro e testável."""
+_CATEGORIAS = {
+    "funcionalidade": ("[família]", "pedido-da-familia", "Pedido"),
+    "problema": ("[problema]", "problema-reportado", "Problema relatado"),
+}
+
+
+def montar_payload(titulo: str, pedido: str, autor: str, papel: str,
+                   categoria: str = "funcionalidade") -> dict:
+    """Corpo da issue — puro e testável. Categoria decide prefixo e rótulo."""
+    prefixo, rotulo, substantivo = _CATEGORIAS.get(categoria, _CATEGORIAS["funcionalidade"])
     return {
-        "title": f"[família] {titulo.strip()[:80]}",
+        "title": f"{prefixo} {titulo.strip()[:80]}",
         "body": (
-            f"**Pedido de {autor}** (papel: {papel}), direto do chat do mordomo:\n\n"
+            f"**{substantivo} por {autor}** (papel: {papel}), direto do chat do mordomo:\n\n"
             f"> {pedido.strip()}\n\n"
             "_Aberto automaticamente pelo fluxo família-pede-vira-issue._"
         ),
-        "labels": ["pedido-da-familia"],
+        "labels": [rotulo],
     }
 
 
-async def criar_issue(titulo: str, pedido: str, autor: str, papel: str) -> str | None:
+async def criar_issue(titulo: str, pedido: str, autor: str, papel: str,
+                      categoria: str = "funcionalidade") -> str | None:
     """Abre a issue e devolve a URL, ou None (sem token / falha — nunca explode)."""
     if not settings.github_token:
         log.info("GITHUB_TOKEN ausente — pedido registrado só em product_events")
@@ -44,7 +53,7 @@ async def criar_issue(titulo: str, pedido: str, autor: str, papel: str) -> str |
                     "Authorization": f"Bearer {settings.github_token}",
                     "Accept": "application/vnd.github+json",
                 },
-                json=montar_payload(titulo, pedido, autor, papel),
+                json=montar_payload(titulo, pedido, autor, papel, categoria),
             )
             resposta.raise_for_status()
         return resposta.json().get("html_url")

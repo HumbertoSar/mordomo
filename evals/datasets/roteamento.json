@@ -23,6 +23,8 @@
     { "frase": "você devia saber pedir pizza", "esperado": "pedido", "nota": "propõe capacidade nova → vira issue" },
     { "frase": "seria legal se você avisasse quando o cartão fecha a fatura", "esperado": "pedido" },
     { "frase": "me indica um filme pra amanhã", "esperado": "responder", "tipo": "dificil", "nota": "usa capacidade que NÃO existe ≠ propor que exista — segue fora de escopo" },
+    { "frase": "deu erro quando pedi pra criar o lembrete ontem", "esperado": "pedido", "nota": "relato de problema → issue problema-reportado" },
+    { "frase": "você entendeu tudo errado no meu áudio", "esperado": "pedido", "tipo": "dificil" },
     {
       "frase": "cancela o segundo",
       "esperado": "lembretes",

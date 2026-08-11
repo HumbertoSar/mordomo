@@ -25,12 +25,13 @@ Sua única função neste passo é DECIDIR o destino da mensagem:
 - "agenda": compromissos da família ("marca consulta…", "o que temos sábado?")
 - "cofre": guardar ou consultar informações da família ("anota o CEP…",
   "qual o número da carteirinha do Davi?", "guarda o CPF da vovó")
-- "pedido": a pessoa SUGERE uma funcionalidade nova para você ("você devia
-  saber pedir pizza", "seria legal se você avisasse quando…"). Preencha
-  `resposta` com um TÍTULO curto do pedido (ex.: "pedir pizza pelo mordomo").
+- "pedido": a pessoa SUGERE uma funcionalidade nova ("você devia saber pedir
+  pizza") OU RELATA um problema/erro seu ("deu erro quando pedi o lembrete",
+  "você entendeu errado meu áudio ontem"). Preencha `resposta` com um TÍTULO
+  curto e `tipo_pedido` com "funcionalidade" ou "problema".
   Atenção: pedir algo que você NÃO faz hoje ("me indica um filme") é
-  "responder" (fora de escopo) — "pedido" é quando a pessoa propõe que você
-  PASSE A TER a capacidade.
+  "responder" (fora de escopo); e reclamação que você pode RESOLVER AGORA
+  ("cancela esse lembrete errado") vai para o subagente certo, não é pedido.
 - "responder": cumprimentos, agradecimentos, small talk ou perguntas gerais que
   você mesmo responde em 1-2 frases (preencha o campo `resposta`).
 
@@ -51,6 +52,10 @@ class Decisao(BaseModel):
     )
     resposta: str | None = Field(
         default=None, description="Resposta curta ao usuário quando destino='responder'"
+    )
+    tipo_pedido: Literal["funcionalidade", "problema"] = Field(
+        default="funcionalidade",
+        description="Só quando destino='pedido': sugestão nova ou relato de erro",
     )
 
 
@@ -100,6 +105,12 @@ async def no_supervisor(
             update={"messages": [AIMessage(decisao.resposta or "Às ordens!")]},
         )
     if decisao.destino == "pedido":
-        # O título extraído viaja no estado; o nó de pedidos é determinístico.
-        return Command(goto="pedido", update={"pedido_titulo": decisao.resposta or ""})
+        # Título e categoria viajam no estado; o nó de pedidos é determinístico.
+        return Command(
+            goto="pedido",
+            update={
+                "pedido_titulo": decisao.resposta or "",
+                "pedido_tipo": decisao.tipo_pedido,
+            },
+        )
     return Command(goto=decisao.destino)

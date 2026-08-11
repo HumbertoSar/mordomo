@@ -20,16 +20,23 @@ async def no_pedidos(state: EstadoMordomo, config) -> dict:
     titulo = state.get("pedido_titulo") or pedido[:80]
     autor = state.get("member_nome", "?")
     papel = state.get("member_papel", "?")
+    categoria = state.get("pedido_tipo") or "funcionalidade"
 
     # O evento vem ANTES da issue: mesmo sem token/GitHub fora do ar, o pedido
     # fica registrado e aparece no funil.
-    await emitir_de(config, "feature_requested", titulo=titulo[:120])
+    await emitir_de(config, "feature_requested", titulo=titulo[:120], categoria=categoria)
 
-    url = await criar_issue(titulo, pedido, autor, papel)
-    await emitir_de(config, "feature_issue_created", ok=url is not None)
+    url = await criar_issue(titulo, pedido, autor, papel, categoria)
+    await emitir_de(config, "feature_issue_created", ok=url is not None, categoria=categoria)
 
-    resposta = (
-        f"Anotado, {autor}! 📋 Registrei seu pedido ('{titulo}') para o "
-        "mordomo-chefe avaliar. Se sair do papel, você fica sabendo por aqui."
-    )
+    if categoria == "problema":
+        resposta = (
+            f"Sinto muito pelo tropeço, {autor}! 🙇 Registrei o problema "
+            f"('{titulo}') para o mordomo-chefe investigar. Obrigado por avisar."
+        )
+    else:
+        resposta = (
+            f"Anotado, {autor}! 📋 Registrei seu pedido ('{titulo}') para o "
+            "mordomo-chefe avaliar. Se sair do papel, você fica sabendo por aqui."
+        )
     return {"messages": [AIMessage(resposta)]}
