@@ -2,20 +2,13 @@
 
 from sqlalchemy import select
 
+from apoio import cfg_de as _cfg
+from apoio import criar_membro as _membro
 from mordomo.channels.contract import TELEGRAM_CAPS, WHATSAPP_CAPS, Anexo, OutboundMessage
 from mordomo.core.anexos import coletar, registrar
-from mordomo.db.models import Document, Member, ProductEvent
+from mordomo.db.models import Document, ProductEvent
 from mordomo.db.session import Sessao
 from mordomo.tools.cofre import buscar_documento, listar_documentos
-
-
-async def _membro(nome: str) -> Member:
-    async with Sessao() as s:
-        m = Member(nome=nome, papel="adulto")
-        s.add(m)
-        await s.commit()
-        await s.refresh(m)
-        return m
 
 
 async def _doc(nome: str, dono: int, dados: bytes = b"jpegfake", compartilhado: bool = True) -> Document:
@@ -26,11 +19,6 @@ async def _doc(nome: str, dono: int, dados: bytes = b"jpegfake", compartilhado: 
         await s.commit()
         await s.refresh(d)
         return d
-
-
-def _cfg(membro: Member, turn: str) -> dict:
-    return {"configurable": {"member_id": membro.id, "member_papel": membro.papel,
-                             "session_id": f"{membro.id}:t", "turn_id": turn}}
 
 
 def test_legenda_com_instrucao_vira_nome_limpo():

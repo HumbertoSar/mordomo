@@ -7,18 +7,10 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 
+from apoio import criar_membro as _membro
 from mordomo.convites import criar_convite, usar_convite
 from mordomo.db.models import ChannelIdentity, InviteCode, Member
 from mordomo.db.session import Sessao
-
-
-async def _membro(nome: str, papel: str) -> Member:
-    async with Sessao() as s:
-        m = Member(nome=nome, papel=papel)
-        s.add(m)
-        await s.commit()
-        await s.refresh(m)
-        return m
 
 
 async def test_fluxo_completo_adulto_convida_novo_vincula():

@@ -2,18 +2,10 @@
 
 from datetime import UTC, datetime, timedelta
 
+from apoio import criar_membro as _membro
 from mordomo.briefing import montar_briefing
-from mordomo.db.models import FamilyEvent, Member, Reminder
+from mordomo.db.models import FamilyEvent, Reminder
 from mordomo.db.session import Sessao
-
-
-async def _membro(nome: str) -> Member:
-    async with Sessao() as s:
-        m = Member(nome=nome, papel="adulto")
-        s.add(m)
-        await s.commit()
-        await s.refresh(m)
-        return m
 
 
 async def test_dia_vazio_nao_gera_briefing():

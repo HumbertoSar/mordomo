@@ -11,8 +11,7 @@ Padrões importantes:
   - Todo caminho de saída emite `tool_result`, inclusive os de falha: o motivo
     ("data_nao_entendida") é o que vira backlog no eval de datas."""
 
-from datetime import UTC, datetime
-from zoneinfo import ZoneInfo
+from datetime import UTC
 
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
@@ -20,15 +19,11 @@ from sqlalchemy import select
 
 from .. import scheduler
 from ..analytics import emitir_de
-from ..config import settings
 from ..db.models import Reminder
 from ..db.session import Sessao
 from . import recorrencia
-from .datas import resolver_data
-
-
-def _fmt(dt: datetime) -> str:
-    return dt.astimezone(ZoneInfo(settings.tz_familia)).strftime("%d/%m às %H:%M")
+from ._comum import fmt_data as _fmt
+from ._comum import resolver_ou_instruir
 
 
 @tool
@@ -76,20 +71,9 @@ async def criar_lembrete(texto: str, quando: str, config: RunnableConfig) -> str
             f"Próximo toque: {_fmt(dt)}."
         )
 
-    dt = resolver_data(quando)
-    if dt is None:
-        await emitir_de(
-            config, "tool_result", tool="criar_lembrete", ok=False, motivo="data_nao_entendida"
-        )
-        return (
-            f"NÃO ENTENDI a expressão de tempo '{quando}'. "
-            "Pergunte ao usuário a data e a hora exatas (não invente!)."
-        )
-    if dt <= datetime.now(UTC).astimezone(dt.tzinfo):
-        await emitir_de(
-            config, "tool_result", tool="criar_lembrete", ok=False, motivo="data_no_passado"
-        )
-        return f"'{quando}' resolveu para {_fmt(dt)}, que já passou. Confirme a data com o usuário."
+    dt, instrucao = await resolver_ou_instruir(quando, config, "criar_lembrete")
+    if instrucao:
+        return instrucao
     async with Sessao() as s:
         lembrete = Reminder(member_id=member_id, texto=texto, quando_utc=dt.astimezone(UTC))
         s.add(lembrete)

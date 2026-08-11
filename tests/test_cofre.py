@@ -6,30 +6,12 @@ Nota de API: o RunnableConfig injetado vai como SEGUNDO argumento do ainvoke
 
 from sqlalchemy import select
 
+from apoio import cfg_de as _cfg
+from apoio import criar_membro as _membro
 from mordomo import privacidade
-from mordomo.db.models import Member, ProductEvent, VaultItem
+from mordomo.db.models import ProductEvent, VaultItem
 from mordomo.db.session import Sessao
 from mordomo.tools.cofre import apagar_info, buscar_info, guardar_info, listar_cofre
-
-
-async def _membro(nome: str, papel: str = "adulto") -> Member:
-    async with Sessao() as s:
-        m = Member(nome=nome, papel=papel)
-        s.add(m)
-        await s.commit()
-        await s.refresh(m)
-        return m
-
-
-def _cfg(membro: Member, turn: str) -> dict:
-    return {
-        "configurable": {
-            "member_id": membro.id,
-            "member_papel": membro.papel,
-            "session_id": f"{membro.id}:teste",
-            "turn_id": turn,
-        }
-    }
 
 
 async def test_guardar_e_buscar():

@@ -6,21 +6,18 @@ formas para comparar no portfólio: (a) tool nativa escrita à mão (a dor do
 OAuth ensina) e (b) MCP server pronto via langchain-mcp-adapters."""
 
 from datetime import UTC, datetime, timedelta
-from zoneinfo import ZoneInfo
+from functools import partial
 
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 from sqlalchemy import select
 
 from ..analytics import emitir_de
-from ..config import settings
 from ..db.models import FamilyEvent
 from ..db.session import Sessao
-from .datas import resolver_data
+from ._comum import fmt_data, resolver_ou_instruir
 
-
-def _fmt(dt: datetime) -> str:
-    return dt.astimezone(ZoneInfo(settings.tz_familia)).strftime("%a %d/%m às %H:%M")
+_fmt = partial(fmt_data, dia_semana=True)  # agenda mostra o dia da semana
 
 
 @tool
@@ -34,20 +31,9 @@ async def criar_evento(titulo: str, quando: str, local: str | None, config: Runn
     """
     member_id = config["configurable"]["member_id"]
     await emitir_de(config, "tool_called", tool="criar_evento", quando=quando)
-    dt = resolver_data(quando)
-    if dt is None:
-        await emitir_de(
-            config, "tool_result", tool="criar_evento", ok=False, motivo="data_nao_entendida"
-        )
-        return (
-            f"NÃO ENTENDI a expressão de tempo '{quando}'. "
-            "Pergunte ao usuário a data e a hora exatas (não invente!)."
-        )
-    if dt <= datetime.now(UTC).astimezone(dt.tzinfo):
-        await emitir_de(
-            config, "tool_result", tool="criar_evento", ok=False, motivo="data_no_passado"
-        )
-        return f"'{quando}' resolveu para {_fmt(dt)}, que já passou. Confirme a data com o usuário."
+    dt, instrucao = await resolver_ou_instruir(quando, config, "criar_evento")
+    if instrucao:
+        return instrucao
     async with Sessao() as s:
         ev = FamilyEvent(
             titulo=titulo, inicio_utc=dt.astimezone(UTC), local=local, criado_por=member_id
@@ -65,9 +51,10 @@ async def listar_agenda(dias: int, config: RunnableConfig) -> str:
     """Lista os compromissos da família nos próximos N dias (use 1 para hoje, 7 para a semana)."""
     # Sem member_id aqui de propósito: a agenda é COMPARTILHADA (ADR-003), e
     # quem pediu já entra no evento via emitir_de.
+    dias = max(1, dias)  # normaliza ANTES: janela e resposta contam o mesmo nº
     await emitir_de(config, "tool_called", tool="listar_agenda", dias=dias)
     agora = datetime.now(UTC)
-    ate = agora + timedelta(days=max(1, dias))
+    ate = agora + timedelta(days=dias)
     async with Sessao() as s:
         res = await s.execute(
             select(FamilyEvent)
