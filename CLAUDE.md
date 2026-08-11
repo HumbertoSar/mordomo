@@ -20,6 +20,7 @@ make evals     # eval de datas pt-BR; `uv run python evals/run_evals.py --com-ll
 make lint      # ruff
 
 uv run python -m mordomo.reporting.dashboard --dias 30   # gera docs/dashboard.html
+uv run python scripts/preview_dashboard.py               # dashboard com dados SINTÉTICOS (mexeu no dashboard? veja aqui, sem deploy)
 uv run alembic revision --autogenerate -m "..."          # nova migração
 powershell -ExecutionPolicy Bypass -File scripts/backup.ps1
 ```
