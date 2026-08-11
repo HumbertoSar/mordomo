@@ -18,18 +18,28 @@ def registrar_adapter(adapter: ChannelAdapter) -> None:
 
 
 async def notificar(member_id: int, texto: str) -> bool:
-    """Envia proativamente pelo primeiro canal em que o membro existe."""
+    """Envia proativamente pelo primeiro canal em que o membro existe.
+
+    Falha de ENVIO (usuário bloqueou o bot, rede fora) também devolve False —
+    nunca exceção. O scheduler conta com isso para marcar o lembrete como
+    "falhou" (em vez de deixá-lo "pendente" para sempre com o job já perdido),
+    e a curadoria/briefing para seguir para o próximo adulto da lista."""
     for canal, adapter in _adapters.items():
         ext = await identidade_do_membro(member_id, canal)
-        if ext:
+        if not ext:
+            continue
+        try:
             await adapter.notificar(member_id, texto)
-            await emitir(
-                "proactive_sent",
-                member_id,
-                session_id_de(member_id),
-                canal=canal,
-                tamanho=len(texto),
-            )
-            return True
+        except Exception:
+            log.exception("Falha ao notificar membro %s via %s", member_id, canal)
+            return False
+        await emitir(
+            "proactive_sent",
+            member_id,
+            session_id_de(member_id),
+            canal=canal,
+            tamanho=len(texto),
+        )
+        return True
     log.warning("Membro %s sem canal para notificação proativa", member_id)
     return False
