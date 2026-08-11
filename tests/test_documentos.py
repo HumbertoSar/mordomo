@@ -33,6 +33,17 @@ def _cfg(membro: Member, turn: str) -> dict:
                              "session_id": f"{membro.id}:t", "turn_id": turn}}
 
 
+def test_legenda_com_instrucao_vira_nome_limpo():
+    """Caso real (11/08): legenda-instrução poluía o nome do documento."""
+    from mordomo.channels.telegram import _nome_da_legenda
+
+    assert (_nome_da_legenda("Guardar essa imagem como Carteirinha do Plano de Saúde Davi")
+            == "Carteirinha do Plano de Saúde Davi")
+    assert _nome_da_legenda("salva como RG do Davi") == "RG do Davi"
+    assert _nome_da_legenda("RG do Davi") == "RG do Davi"          # sem instrução, intacta
+    assert _nome_da_legenda("Guardar") == "Guardar"                # só o verbo → mantém
+
+
 def test_canais_suportam_midia_no_contrato():
     """Golden do ADR-001: anexo tem plano válido nos dois canais."""
     assert TELEGRAM_CAPS.supports_media and WHATSAPP_CAPS.supports_media

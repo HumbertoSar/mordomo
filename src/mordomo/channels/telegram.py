@@ -13,6 +13,7 @@ Responsabilidades do adapter (e SÓ dele — ADR-001):
 import asyncio
 import io
 import logging
+import re
 from datetime import UTC, datetime
 
 from aiogram import Bot, Dispatcher, F
@@ -49,6 +50,22 @@ from .contract import (
 )
 
 log = logging.getLogger(__name__)
+
+# A legenda vira o NOME do documento, mas gente escreve instrução: "Guardar essa
+# imagem como Carteirinha do Plano" (caso real, 11/08). Tiramos o verbo e as
+# palavras de ligação; se sobrar nada, ficamos com a legenda original.
+_RGX_INSTRUCAO_LEGENDA = re.compile(
+    r"^(?:por favor[,\s]+)?(?:pode(?:ria)?\s+)?"
+    r"(?:guardar?|salvar?|anotar?|arquivar?)\s*"
+    r"(?:ess[ae]|est[ae]|o|a)?\s*(?:imagem|foto|arquivo|documento)?\s*"
+    r"(?:como|de|:)?\s*",
+    re.IGNORECASE,
+)
+
+
+def _nome_da_legenda(legenda: str) -> str:
+    nome = _RGX_INSTRUCAO_LEGENDA.sub("", legenda.strip(), count=1).strip()
+    return nome or legenda.strip()
 
 
 class TelegramAdapter:
@@ -134,7 +151,7 @@ class TelegramAdapter:
             if membro is None:
                 await msg.answer("Ainda não nos conhecemos — peça um convite e mande /vincular CÓDIGO. 🤝")
                 return
-            nome = (msg.caption or "").strip()
+            nome = _nome_da_legenda(msg.caption or "")
             if not nome:
                 await msg.answer(
                     "Recebi o arquivo, mas preciso de um nome! Reenvie com uma "

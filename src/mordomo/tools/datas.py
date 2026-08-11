@@ -36,6 +36,9 @@ _SUBSTITUICOES: list[tuple[str, str]] = [
     (r"\bque vem\b", ""),
     # "dia 5 de outubro" → "5 de outubro" (o "dia" solto atrapalha o parser).
     (r"\bdia\s+(?=\d)", ""),
+    # "dia 21 desse mês" (caso real do Davi, 11/08): o dateparser não conhece
+    # "desse/deste mês" — mas "21" sozinho ele resolve no mês corrente.
+    (r"\b(?:desse|deste|do)\s+m[eê]s\b", ""),
 ]
 
 
@@ -72,6 +75,7 @@ def _normalizar(expressao: str) -> str:
     e = re.sub(r"\b(\d{1,2})hs?\b", r"\1:00", e)       # 8h / 8hs → 8:00
     e = re.sub(r"\b([àa]s)\s+(\d{1,2})\b(?!\s*:)", r"\1 \2:00", e)  # às 18 → às 18:00
     e = re.sub(r"\bao\s+(\d{1,2}:\d{2})\b", r"às \1", e)            # ao 12:00 → às 12:00
+    e = re.sub(r"\bà\s+(?=\d{1,2}:\d{2})", "às ", e)                # à 00:00 → às 00:00
     e = _converter_periodo(e)                          # 8:00 da manhã → 08:00
     return re.sub(r"\s+", " ", e).strip()              # remover "que vem" deixa espaço duplo
 
@@ -91,5 +95,10 @@ def resolver_data(expressao: str, base: datetime | None = None) -> datetime | No
         ajustes["RELATIVE_BASE"] = base.astimezone(tz).replace(tzinfo=None)
     dt = dateparser.parse(expressao, languages=["pt"], settings=ajustes)
     if dt is None:
+        return None
+    # Meia-noite SILENCIOSA = o usuário não disse a hora ("dia 21" → 00:00 por
+    # default do parser). Regra nº 3: sem hora, PERGUNTA — devolvemos None.
+    # Meia-noite EXPLÍCITA sobrevive: "meia-noite" já virou "00:00" no texto.
+    if dt.hour == 0 and dt.minute == 0 and "00:00" not in expressao:
         return None
     return dt.astimezone(tz)
