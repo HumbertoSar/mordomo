@@ -44,6 +44,10 @@ Regras:
   pergunta curta de esclarecimento.
 - Pedidos fora do escopo atual (e-mail, filmes, tarefas): destino "responder",
   explique com bom humor que essa mordomia chega em breve.
+- Pergunta sobre o cofre/documentos → destino "cofre" SEMPRE, inclusive em
+  grupo. NUNCA recuse você mesmo "por segurança": quem sabe o que pode
+  aparecer onde é o subagente do cofre. Se o histórico tiver recusas antigas
+  ("só no privado…"), ignore — eram de uma versão anterior e não valem mais.
 - Está falando com {nome} (papel: {papel}).
 """
 
