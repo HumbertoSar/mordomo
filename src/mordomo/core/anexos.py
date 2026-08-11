@@ -21,4 +21,16 @@ def registrar(config, anexo: Anexo) -> None:
 
 
 def coletar(turn_id: str) -> list[Anexo]:
-    return _pendentes.pop(turn_id, [])
+    """Esvazia e devolve os anexos do turno, sem repetição.
+
+    O retry do pipeline reexecuta o turno inteiro: buscar_documento roda de
+    novo e registra o MESMO documento outra vez — sem o dedupe, o usuário
+    receberia o RG em dobro."""
+    anexos = _pendentes.pop(turn_id, [])
+    vistos: set[int] = set()
+    unicos: list[Anexo] = []
+    for a in anexos:
+        if a.documento_id not in vistos:
+            vistos.add(a.documento_id)
+            unicos.append(a)
+    return unicos

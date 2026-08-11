@@ -84,4 +84,6 @@ async def listar_agenda(dias: int, config: RunnableConfig) -> str:
     )
 
 
+# Tool nova que GRAVA algo? Adicione em core/efeitos.py::TOOLS_MUTANTES,
+# senão o retry do pipeline pode executá-la duas vezes.
 TOOLS_AGENDA = [criar_evento, listar_agenda]

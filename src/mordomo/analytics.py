@@ -26,6 +26,7 @@ Falha de analytics NUNCA derruba a conversa (try/except deliberado)."""
 
 import logging
 
+from .core import efeitos
 from .db.models import ProductEvent
 from .db.session import Sessao
 
@@ -39,6 +40,9 @@ async def emitir(
     turn_id: str | None = None,
     **payload,
 ) -> None:
+    # ANTES do try: o registro em memória de efeito mutante não pode se perder
+    # junto com uma falha de banco — é ele que impede o retry de duplicar.
+    efeitos.observar(tipo, turn_id, payload)
     try:
         async with Sessao() as s:
             s.add(

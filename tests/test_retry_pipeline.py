@@ -69,6 +69,73 @@ async def test_tool_de_leitura_nao_conta_como_efeito():
     assert await _turno_teve_efeito("t-leitura") is False
 
 
+class _GrafoFalhaComAnalyticsForaDoAr:
+    """O cenário que o registro em memória (core/efeitos.py) existe para
+    cobrir: a tool mutante RODOU, mas o banco de analytics engoliu o
+    tool_result. Sem a memória, o retry duplicaria o lembrete."""
+
+    def __init__(self):
+        self.chamadas = 0
+
+    async def ainvoke(self, entrada, cfg):
+        self.chamadas += 1
+        await emitir("tool_result", 1, "1:t", cfg["configurable"]["turn_id"],
+                     tool="criar_lembrete", ok=True)
+        raise TypeError("'NoneType' object is not iterable")
+
+
+async def test_efeito_vale_mesmo_com_analytics_fora_do_ar(monkeypatch):
+    class _SessaoQuebrada:
+        def __call__(self):
+            raise RuntimeError("banco de analytics fora do ar")
+
+    # Só o emitir() do analytics perde o banco; o resto do mundo segue de pé.
+    monkeypatch.setattr("mordomo.analytics.Sessao", _SessaoQuebrada())
+    grafo = _GrafoFalhaComAnalyticsForaDoAr()
+    _, respostas = await processar_entrada(_membro(994), _inbound(), grafo)
+    assert grafo.chamadas == 1  # NÃO repetiu: o lembrete não pode duplicar
+    assert "Fiz o que você pediu" in respostas[0].texto
+
+
+async def test_anexo_nao_sai_junto_com_mensagem_de_erro():
+    """buscar_documento anexou, o grafo caiu depois: o "Ops, tropecei" não
+    pode chegar acompanhado do RG de alguém."""
+    from mordomo.channels.contract import Anexo
+    from mordomo.core.anexos import registrar
+
+    class _GrafoAnexaEDepoisCai:
+        async def ainvoke(self, entrada, cfg):
+            registrar(cfg, Anexo(documento_id=42, nome="RG do Davi", mime="image/jpeg"))
+            await emitir("tool_result", 1, "1:t", cfg["configurable"]["turn_id"],
+                         tool="criar_lembrete", ok=True)  # trava o retry
+            raise TypeError("crash depois do anexo")
+
+    _, respostas = await processar_entrada(_membro(995), _inbound(), _GrafoAnexaEDepoisCai())
+    assert respostas[0].anexos == []
+
+
+async def test_retry_nao_duplica_anexo():
+    """1ª tentativa anexa e cai (sem efeito mutante → repete); a 2ª anexa de
+    novo e responde: o documento tem que ir UMA vez."""
+    from mordomo.channels.contract import Anexo
+    from mordomo.core.anexos import registrar
+
+    class _GrafoAnexaCaiEAnexaDeNovo:
+        def __init__(self):
+            self.chamadas = 0
+
+        async def ainvoke(self, entrada, cfg):
+            self.chamadas += 1
+            registrar(cfg, Anexo(documento_id=7, nome="carteirinha", mime="image/jpeg"))
+            if self.chamadas == 1:
+                raise TypeError("crash na 1ª tentativa")
+            return {"messages": [AIMessage("Segue a carteirinha!")]}
+
+    _, respostas = await processar_entrada(_membro(996), _inbound(), _GrafoAnexaCaiEAnexaDeNovo())
+    assert len(respostas[0].anexos) == 1
+    assert respostas[0].anexos[0].documento_id == 7
+
+
 class _GrafoMedeConcorrencia:
     """Conta quantas invocações estão ativas AO MESMO TEMPO."""
 

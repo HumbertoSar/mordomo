@@ -150,4 +150,6 @@ async def cancelar_lembrete(id_lembrete: int, config: RunnableConfig) -> str:
     return f"Lembrete #{id_lembrete} cancelado."
 
 
+# Tool nova que GRAVA algo? Adicione em core/efeitos.py::TOOLS_MUTANTES,
+# senão o retry do pipeline pode executá-la duas vezes.
 TOOLS_LEMBRETES = [criar_lembrete, listar_lembretes, cancelar_lembrete]

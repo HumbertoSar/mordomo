@@ -185,4 +185,6 @@ async def listar_documentos(config: RunnableConfig) -> str:
     return "Documentos guardados:\n" + "\n".join(f"• {n}" for n in nomes)
 
 
+# Tool nova que GRAVA algo? Adicione em core/efeitos.py::TOOLS_MUTANTES,
+# senão o retry do pipeline pode executá-la duas vezes.
 TOOLS_COFRE = [guardar_info, buscar_info, listar_cofre, apagar_info, buscar_documento, listar_documentos]

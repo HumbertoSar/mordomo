@@ -16,14 +16,11 @@ from ..analytics import emitir_de
 from ..channels.contract import InboundMessage, OutboundMessage
 from ..db.models import Member
 from ..observability import config_invocacao
+from . import efeitos
 from .anexos import coletar
 
 log = logging.getLogger(__name__)
 
-
-_TOOLS_MUTANTES = (
-    "criar_lembrete", "cancelar_lembrete", "criar_evento", "guardar_info", "apagar_info"
-)
 
 # Um lock por thread do checkpointer (membro ou grupo). O debounce do adapter
 # só cancela o flush enquanto ele DORME: mensagem que chega durante os 3-10s
@@ -38,7 +35,14 @@ def _lock_da_thread(thread_id: str) -> asyncio.Lock:
 
 
 async def _turno_teve_efeito(turn_id: str) -> bool:
-    """O funil como fonte de verdade: alguma tool MUTANTE concluiu ok neste turno?"""
+    """Alguma tool MUTANTE concluiu ok neste turno?
+
+    Memória primeiro (core/efeitos.py — não depende do banco: se o banco
+    piscou e o tool_result se perdeu, é ela que impede o retry de duplicar o
+    lembrete); o funil fica de cinto e suspensório."""
+    if efeitos.houve_efeito(turn_id):
+        return True
+
     from sqlalchemy import func, select
 
     from ..db.models import ProductEvent
@@ -51,7 +55,7 @@ async def _turno_teve_efeito(turn_id: str) -> bool:
                     ProductEvent.turn_id == turn_id,
                     ProductEvent.tipo == "tool_result",
                     ProductEvent.payload["ok"].as_boolean().is_(True),
-                    ProductEvent.payload["tool"].as_string().in_(_TOOLS_MUTANTES),
+                    ProductEvent.payload["tool"].as_string().in_(efeitos.TOOLS_MUTANTES),
                 )
             )
             return res.scalar_one() > 0
@@ -141,6 +145,13 @@ async def processar_entrada(
         tamanho_resposta=len(texto),
     )
 
+    efeitos.limpar(turn_id)
+
     # Anexos que as tools registraram durante o turno (core/anexos.py):
-    # o LLM só descreve; quem anexa é o sistema.
-    return turn_id, [OutboundMessage(texto=texto, anexos=coletar(turn_id))]
+    # o LLM só descreve; quem anexa é o sistema. Turno que falhou NÃO leva
+    # anexo: "Ops, tropecei" acompanhado do RG da pessoa seria surreal —
+    # coletamos mesmo assim para esvaziar o registro do turno.
+    anexos = coletar(turn_id)
+    if not ok:
+        anexos = []
+    return turn_id, [OutboundMessage(texto=texto, anexos=anexos)]
