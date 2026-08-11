@@ -34,9 +34,12 @@ PowerShell recusar, `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` uma ve
 Telegram (aiogram) ─┐                       ┌─ agents/supervisor.py  (roteia: Command/goto)
 WhatsApp (fase 3) ──┤→ channels/contract.py │→ agents/lembretes.py → tools/lembretes.py → scheduler.py
                     │  (Inbound/Outbound    │→ agents/agenda.py    → tools/agenda.py
-                    │   SEMÂNTICOS)         └─ core/graph.py (StateGraph + checkpointer Postgres)
-                    └→ core/pipeline.py — nasce o trace (Langfuse) e os eventos (analytics.py)
+                    │   SEMÂNTICOS)         │→ agents/cofre.py     → tools/cofre.py
+                    │                       └─ core/graph.py (StateGraph + checkpointer Postgres)
+                    └→ core/pipeline.py — nasce o trace (Langfuse), o turn_id, o LOCK por
+                       thread e a trava de retry (core/efeitos.py)
 notify.py: proatividade abstraída (scheduler → canal)  ·  identity.py: (canal, id) → member
+agents/_base.py: fábrica NoSubagente — subagente novo = prompt + 1 linha
 ```
 
 ## Regras do projeto (importantes — não violar)
@@ -65,9 +68,30 @@ notify.py: proatividade abstraída (scheduler → canal)  ·  identity.py: (cana
 6. **Respostas em tom de mordomo, curtas, texto-primeiro** (formato WhatsApp:
    sem markdown pesado, sem tabelas).
 7. **Testes (`make test`) não podem depender de rede, chaves ou Docker.**
+   Fixtures de membro/config: use `tests/apoio.py` (criar_membro/cfg_de) —
+   não copie `_membro` local. Ids/nomes únicos por execução quando o teste
+   grava no banco compartilhado da sessão.
 8. **NUNCA** adicionar Evolution API/Baileys/WPPConnect (risco real de ban do
    número). WhatsApp = Cloud API oficial via pywa (fase 3).
 9. Não commitar `.env`. Segredos só por variável de ambiente.
+10. **Subagente novo = `NoSubagente(nome, tools, prompt)`** (agents/_base.py) —
+    não copie o padrão de nó na mão. Testes injetam fake pelo atributo
+    `agente` da instância (ver tests/test_grafo.py).
+11. **Tool que GRAVA algo entra em `core/efeitos.py::TOOLS_MUTANTES`** — é a
+    trava que impede o retry do pipeline de executá-la duas vezes. Tool que
+    resolve data usa `tools/_comum.resolver_ou_instruir` (o texto de falha é
+    prompt compartilhado entre os agentes) e `fmt_data`.
+12. **Convenção do funil: busca que não achou = `ok=False` + `motivo`**
+    ("nao_encontrado", "data_nao_entendida"…) — é o que alimenta o ranking de
+    falhas e a curadoria. `tool_called` sempre na ENTRADA da tool.
+13. **Grupo (ADR-008)**: cofre e documentos respondem no grupo da família,
+    mas só com o COMPARTILHADO — item/documento "só pra mim" é exclusivo do
+    privado (filtro determinístico via `grupo_id` do configurable, nunca
+    prompt). `/convidar` e `/vincular` só no privado (o código é segredo).
+14. **Privacidade (ADR-005)**: payload de analytics leva chave/id, nunca
+    valor nem texto de conversa; issue no repo público leva só o título
+    (detalhe atrás de GITHUB_ISSUES_DETALHADAS, para repo privado); valor do
+    cofre passa por `privacidade.registrar_segredo` antes de voltar ao LLM.
 
 ## Gotchas conhecidos
 
@@ -92,6 +116,13 @@ notify.py: proatividade abstraída (scheduler → canal)  ·  identity.py: (cana
   `cfg.attributes["configure_logger"] = False` — senão o bot sobe mudo.
 - Latência: o OpenRouter serve o mesmo modelo de hosts diferentes e a cauda
   chega a 10s (ADR-006). `chat_model()` já tem timeout + retry.
+- **PowerShell 5.1 + .ps1 sem BOM**: o parser lê o arquivo como ANSI — um
+  travessão (—) dentro de STRING vira aspa curva mojibakada e quebra a sintaxe
+  do script inteiro. Strings dos .ps1 ficam sem acento/travessão de propósito.
+  E `Set-Content`/pipeline do PS corrompe UTF-8 dos fontes: edite .py com as
+  ferramentas de edição, nunca com `-replace` + `Set-Content`.
+- `.pytest_mordomo.db` às vezes sobrevive entre execuções (OneDrive segura o
+  arquivo no Windows) — por isso os testes usam nomes/ids únicos por execução.
 
 ## Feito (fase 1)
 
@@ -104,6 +135,16 @@ Evals com histórico (`--salvar` → `evals/results/history.csv`, delta automát
 Grafo coberto sem rede (`tests/test_grafo.py`, fakes do structured output).
 Áudio: Groq/Whisper no adapter (`channels/transcricao.py`; sem GROQ_API_KEY =
 recusa simpática).
+
+**Revisão 08/2026** (segurança/robustez/qualidade, 20+ commits): issues
+públicas sem conversa da família; grupo compartilha só o compartilhado; flush
+protegido + fatiamento no max_texto do canal; notificar() devolve False;
+senha do Postgres via env; lock por thread; /vincular atômico; retry com
+memória de efeitos (core/efeitos.py) e anexos deduplicados; TZDateTime
+(naive→aware); máscara do Langfuse reposta no boot; cofre sem oráculo de
+existência nem curinga de LIKE; backups .sql.gpg opcionais
+(BACKUP_PASSPHRASE); fábrica NoSubagente; reporting sem queries mortas;
+tools/lembretes testada (`tests/test_lembretes_tools.py`).
 
 ## Roadmap (o que falta — fase 2+)
 
