@@ -25,6 +25,12 @@ Sua única função neste passo é DECIDIR o destino da mensagem:
 - "agenda": compromissos da família ("marca consulta…", "o que temos sábado?")
 - "cofre": guardar ou consultar informações da família ("anota o CEP…",
   "qual o número da carteirinha do Davi?", "guarda o CPF da vovó")
+- "pedido": a pessoa SUGERE uma funcionalidade nova para você ("você devia
+  saber pedir pizza", "seria legal se você avisasse quando…"). Preencha
+  `resposta` com um TÍTULO curto do pedido (ex.: "pedir pizza pelo mordomo").
+  Atenção: pedir algo que você NÃO faz hoje ("me indica um filme") é
+  "responder" (fora de escopo) — "pedido" é quando a pessoa propõe que você
+  PASSE A TER a capacidade.
 - "responder": cumprimentos, agradecimentos, small talk ou perguntas gerais que
   você mesmo responde em 1-2 frases (preencha o campo `resposta`).
 
@@ -40,7 +46,7 @@ Regras:
 class Decisao(BaseModel):
     """Decisão de roteamento do supervisor."""
 
-    destino: Literal["lembretes", "agenda", "cofre", "responder"] = Field(
+    destino: Literal["lembretes", "agenda", "cofre", "pedido", "responder"] = Field(
         description="Subagente de destino, ou 'responder' para responder diretamente"
     )
     resposta: str | None = Field(
@@ -50,7 +56,7 @@ class Decisao(BaseModel):
 
 async def no_supervisor(
     state: EstadoMordomo, config
-) -> Command[Literal["lembretes", "agenda", "cofre", "__end__"]]:
+) -> Command[Literal["lembretes", "agenda", "cofre", "pedido", "__end__"]]:
     # include_raw=True devolve {"raw", "parsed", "parsing_error"}. Sem ele o
     # AIMessage — e portanto o usage_metadata — era descartado, e uma falha de
     # parse virava exceção genérica ("Ops, tropecei"), indistinguível de um bug
@@ -93,4 +99,7 @@ async def no_supervisor(
             goto=END,
             update={"messages": [AIMessage(decisao.resposta or "Às ordens!")]},
         )
+    if decisao.destino == "pedido":
+        # O título extraído viaja no estado; o nó de pedidos é determinístico.
+        return Command(goto="pedido", update={"pedido_titulo": decisao.resposta or ""})
     return Command(goto=decisao.destino)

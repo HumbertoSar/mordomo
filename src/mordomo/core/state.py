@@ -9,3 +9,4 @@ class EstadoMordomo(MessagesState):
     member_id: int
     member_nome: str
     member_papel: str  # "adulto" | "crianca" — base das permissões
+    pedido_titulo: str  # preenchido pelo supervisor quando destino="pedido"

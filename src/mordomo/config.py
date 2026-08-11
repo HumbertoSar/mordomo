@@ -51,6 +51,10 @@ class Settings(BaseSettings):
     # Default "dev" de propósito: produção é quem declara AMBIENTE=prod.
     ambiente: str = "dev"
 
+    # Pedidos da família → issues (vazio = só registra em product_events)
+    github_token: str = ""
+    github_repo: str = "HumbertoSar/mordomo"
+
     # Comportamento
     tz_familia: str = "America/Sao_Paulo"
     debounce_segundos: float = 1.5

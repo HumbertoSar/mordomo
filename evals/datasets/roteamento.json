@@ -20,6 +20,9 @@
     { "frase": "o que tem guardado no cofre?", "esperado": "cofre" },
     { "frase": "me manda o RG do Davi", "esperado": "cofre", "nota": "documento em imagem — o cofre anexa via buscar_documento" },
     { "frase": "preciso da carteirinha do plano pra fazer o reembolso", "esperado": "cofre" },
+    { "frase": "você devia saber pedir pizza", "esperado": "pedido", "nota": "propõe capacidade nova → vira issue" },
+    { "frase": "seria legal se você avisasse quando o cartão fecha a fatura", "esperado": "pedido" },
+    { "frase": "me indica um filme pra amanhã", "esperado": "responder", "tipo": "dificil", "nota": "usa capacidade que NÃO existe ≠ propor que exista — segue fora de escopo" },
     {
       "frase": "cancela o segundo",
       "esperado": "lembretes",
