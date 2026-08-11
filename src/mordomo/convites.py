@@ -79,10 +79,8 @@ async def usar_convite(codigo: str, canal: str, external_id: str) -> tuple[Membe
         if convite.usado_por is not None:
             await emitir("invite_rejected", motivo="ja_usado", canal=canal)
             return None, "ja_usado"
-        expira = convite.expira_em
-        if expira.tzinfo is None:  # SQLite devolve naive; o valor foi gravado em UTC
-            expira = expira.replace(tzinfo=UTC)
-        if expira < datetime.now(UTC):
+        # TZDateTime (models.py) garante aware mesmo no SQLite
+        if convite.expira_em < datetime.now(UTC):
             await emitir("invite_rejected", motivo="expirado", canal=canal)
             return None, "expirado"
 

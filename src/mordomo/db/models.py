@@ -5,12 +5,38 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy import JSON, DateTime, ForeignKey, LargeBinary, String, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    DateTime,
+    ForeignKey,
+    LargeBinary,
+    String,
+    TypeDecorator,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
 def agora_utc() -> datetime:
     return datetime.now(UTC)
+
+
+class TZDateTime(TypeDecorator):
+    """DateTime que SEMPRE volta timezone-aware.
+
+    O Postgres respeita timezone=True; o SQLite (dev/testes) devolve naive —
+    e naive não compara nem converte com aware: `carregar_pendentes` explodia
+    no boot em dev, e `astimezone` interpretava o valor como hora local da
+    máquina (3h de erro na exibição). Todo valor é gravado em UTC; na leitura,
+    naive significa UTC e ganha o tzinfo de volta."""
+
+    impl = DateTime(timezone=True)
+    cache_ok = True
+
+    def process_result_value(self, value, dialect):
+        if value is not None and value.tzinfo is None:
+            value = value.replace(tzinfo=UTC)
+        return value
 
 
 class Base(DeclarativeBase):
@@ -26,7 +52,7 @@ class Member(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     nome: Mapped[str] = mapped_column(String(80))
     papel: Mapped[str] = mapped_column(String(20), default="adulto")  # adulto | crianca
-    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=agora_utc)
+    criado_em: Mapped[datetime] = mapped_column(TZDateTime, default=agora_utc)
 
     identidades: Mapped[list[ChannelIdentity]] = relationship(back_populates="member")
 
@@ -52,13 +78,13 @@ class Reminder(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     member_id: Mapped[int] = mapped_column(ForeignKey("members.id"))
     texto: Mapped[str] = mapped_column(String(500))
-    quando_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    quando_utc: Mapped[datetime] = mapped_column(TZDateTime)
     status: Mapped[str] = mapped_column(String(20), default="pendente")  # pendente|enviado|cancelado
     # Regra serializada ("diaria:@08:00", "semanal:0@07:30", "mensal:5@09:00").
     # None = lembrete único. Recorrente dispara e REAGENDA (quando_utc avança);
     # só sai de "pendente" quando cancelado.
     recorrencia: Mapped[str | None] = mapped_column(String(40), nullable=True)
-    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=agora_utc)
+    criado_em: Mapped[datetime] = mapped_column(TZDateTime, default=agora_utc)
 
 
 class FamilyEvent(Base):
@@ -69,10 +95,10 @@ class FamilyEvent(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     titulo: Mapped[str] = mapped_column(String(200))
-    inicio_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    inicio_utc: Mapped[datetime] = mapped_column(TZDateTime)
     local: Mapped[str | None] = mapped_column(String(200), nullable=True)
     criado_por: Mapped[int] = mapped_column(ForeignKey("members.id"))
-    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=agora_utc)
+    criado_em: Mapped[datetime] = mapped_column(TZDateTime, default=agora_utc)
 
 
 class VaultItem(Base):
@@ -90,9 +116,9 @@ class VaultItem(Base):
     valor: Mapped[str] = mapped_column(String(500))
     dono: Mapped[int] = mapped_column(ForeignKey("members.id"))
     compartilhado: Mapped[bool] = mapped_column(default=True)
-    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=agora_utc)
+    criado_em: Mapped[datetime] = mapped_column(TZDateTime, default=agora_utc)
     atualizado_em: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=agora_utc, onupdate=agora_utc
+        TZDateTime, default=agora_utc, onupdate=agora_utc
     )
 
 
@@ -114,7 +140,7 @@ class Document(Base):
     tamanho: Mapped[int] = mapped_column(default=0)       # bytes, para o dashboard
     dados: Mapped[bytes] = mapped_column(LargeBinary)
     telegram_file_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
-    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=agora_utc)
+    criado_em: Mapped[datetime] = mapped_column(TZDateTime, default=agora_utc)
 
 
 class InviteCode(Base):
@@ -131,10 +157,10 @@ class InviteCode(Base):
     nome: Mapped[str] = mapped_column(String(80))          # nome do futuro membro
     papel: Mapped[str] = mapped_column(String(20))         # adulto | crianca
     criado_por: Mapped[int] = mapped_column(ForeignKey("members.id"))
-    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=agora_utc)
-    expira_em: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    criado_em: Mapped[datetime] = mapped_column(TZDateTime, default=agora_utc)
+    expira_em: Mapped[datetime] = mapped_column(TZDateTime)
     usado_por: Mapped[int | None] = mapped_column(ForeignKey("members.id"), nullable=True)
-    usado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    usado_em: Mapped[datetime | None] = mapped_column(TZDateTime, nullable=True)
 
 
 # ── Analytics (eventos de produto) ───────────────────────────────────────
@@ -160,7 +186,7 @@ class ProductEvent(Base):
     __tablename__ = "product_events"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=agora_utc, index=True)
+    ts: Mapped[datetime] = mapped_column(TZDateTime, default=agora_utc, index=True)
     tipo: Mapped[str] = mapped_column(String(50), index=True)
     member_id: Mapped[int | None] = mapped_column(nullable=True, index=True)
     session_id: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
