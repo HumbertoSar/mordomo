@@ -44,6 +44,29 @@ POSTGRES_HOST_PORT=5433
 O bot não é afetado (fala com o banco pela rede interna do compose); a porta do
 host só serve para diagnósticos com `psql` de fora.
 
+### Senha do banco (obrigatório em VPS compartilhada)
+
+O bind em `127.0.0.1` barra a internet, mas **não outros processos e usuários
+da mesma VPS** — e este banco guarda o cofre da família em claro. Gere uma
+senha forte e ponha no `.env` ANTES do primeiro `docker compose up`:
+
+```bash
+echo "POSTGRES_PASSWORD=$(openssl rand -base64 24)" >> .env
+```
+
+**Se o banco já existe** (volume `mordomo_pgdata` inicializado), a variável
+sozinha NÃO troca a senha — a imagem só a aplica na criação do volume. Troque
+por dentro e depois recrie os containers para os dois lados combinarem:
+
+```bash
+docker compose exec postgres psql -U mordomo -d mordomo \
+  -c "ALTER USER mordomo WITH PASSWORD 'A_SENHA_DO_ENV';"
+docker compose --profile bot up -d --force-recreate
+```
+
+Se errar, o sintoma é o bot não conectar no boot — rode o `ALTER USER` de novo
+com a senha que está no `.env` e recrie.
+
 ## 3. Migrar os dados de casa (antes do primeiro boot!)
 
 Na máquina Windows, gere o dump e envie:

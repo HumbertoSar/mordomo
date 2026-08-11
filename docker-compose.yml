@@ -4,7 +4,12 @@ services:
     container_name: mordomo-postgres
     environment:
       POSTGRES_USER: mordomo
-      POSTGRES_PASSWORD: mordomo
+      # Fallback "mordomo" é SÓ para dev local. Na VPS (compartilhada!) defina
+      # POSTGRES_PASSWORD forte no .env: o bind em 127.0.0.1 barra a internet,
+      # mas não outros processos/usuários da mesma máquina — e este banco
+      # guarda o cofre da família em claro. Volume já inicializado NÃO troca de
+      # senha por variável: ver "Senha do banco" no docs/deploy-vps.md.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mordomo}
       POSTGRES_DB: mordomo
     ports:
       # Só localhost: em dev o app roda fora do compose e conecta aqui; na VPS
@@ -31,7 +36,7 @@ services:
     env_file: .env
     environment:
       # Dentro do compose o Postgres se chama "postgres", não localhost
-      DATABASE_URL: postgresql+psycopg://mordomo:mordomo@postgres:5432/mordomo
+      DATABASE_URL: postgresql+psycopg://mordomo:${POSTGRES_PASSWORD:-mordomo}@postgres:5432/mordomo
     depends_on:
       postgres:
         condition: service_healthy
