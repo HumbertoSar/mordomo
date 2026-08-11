@@ -45,6 +45,7 @@ from .contract import (
     InboundMessage,
     OutboundMessage,
     RenderMode,
+    fatiar_texto,
     plan_rendering,
     render_numbered_text,
 )
@@ -346,6 +347,24 @@ class TelegramAdapter:
             await asyncio.sleep(settings.debounce_segundos)
         except asyncio.CancelledError:
             return  # chegou mais mensagem; o novo flush cuida de tudo
+        try:
+            await self._flush(chat_id, user_id, message_id, em_grupo)
+        except Exception:
+            # Task solta (create_task): sem este except a exceção morre no GC
+            # ("Task exception was never retrieved") e o usuário fica no
+            # "digitando…" eterno. O pipeline cobre erro DENTRO do grafo; isto
+            # cobre o resto — canal, banco, usuário que bloqueou o bot.
+            log.exception("Falha no flush do chat %s", chat_id)
+            try:
+                await self.bot.send_message(
+                    chat_id, "Ops, tropecei aqui do meu lado. 😅 Pode repetir, por favor?"
+                )
+            except Exception:  # noqa: BLE001 — até a desculpa pode falhar (bloqueio)
+                log.warning("Nem a desculpa saiu para o chat %s", chat_id)
+
+    async def _flush(
+        self, chat_id: int, user_id: int, message_id: str, em_grupo: bool
+    ) -> None:
         chave = (chat_id, user_id)
         textos = self._buffers.pop(chave, [])
         self._tarefas.pop(chave, None)
@@ -428,24 +447,28 @@ class TelegramAdapter:
         if msg.anexos:
             await self._enviar_anexos(chat_id, msg)
         modo = plan_rendering(msg.interacao, self.caps)
-        if modo is RenderMode.PLAIN:
-            await self.bot.send_message(chat_id, msg.texto)
-            return
+        texto, teclado = msg.texto, None
         if modo is RenderMode.NUMBERED_TEXT and isinstance(msg.interacao, Choice):
-            await self.bot.send_message(chat_id, render_numbered_text(msg.texto, msg.interacao))
-            return
-        if isinstance(msg.interacao, Confirmation):
+            texto = render_numbered_text(msg.texto, msg.interacao)
+        elif modo is RenderMode.BUTTONS and isinstance(msg.interacao, Confirmation):
             teclado = [[
                 InlineKeyboardButton(text=msg.interacao.sim_rotulo, callback_data="sim"),
                 InlineKeyboardButton(text=msg.interacao.nao_rotulo, callback_data="nao"),
             ]]
-        else:  # Choice em botões
+        elif modo is RenderMode.BUTTONS and isinstance(msg.interacao, Choice):
             teclado = [
                 [InlineKeyboardButton(text=op.rotulo, callback_data=op.id)]
                 for op in msg.interacao.opcoes
             ]
+        # Acima de max_texto o Telegram REJEITA a mensagem inteira (message is
+        # too long) — fatiamos; o teclado, quando houver, vai no último bloco.
+        partes = fatiar_texto(texto, self.caps.max_texto)
+        for parte in partes[:-1]:
+            await self.bot.send_message(chat_id, parte)
         await self.bot.send_message(
-            chat_id, msg.texto, reply_markup=InlineKeyboardMarkup(inline_keyboard=teclado)
+            chat_id,
+            partes[-1],
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=teclado) if teclado else None,
         )
 
     # ── Interface ChannelAdapter ─────────────────────────────────────────

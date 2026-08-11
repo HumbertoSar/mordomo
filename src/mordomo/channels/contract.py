@@ -90,7 +90,7 @@ class Capabilities:
     max_list_items: int              # WhatsApp: list message com 10 itens (24 chars)
     supports_list: bool
     supports_free_proactive: bool    # WhatsApp: só na janela de 24h; fora dela, template
-    max_texto: int = 4096            # corpo interativo no WhatsApp é 1024 — renderer trunca
+    max_texto: int = 4096            # limite por mensagem do canal — renderer fatia (fatiar_texto)
     supports_media: bool = True      # Telegram e WhatsApp enviam imagem/arquivo
 
 
@@ -124,6 +124,30 @@ def plan_rendering(interacao: Interaction, caps: Capabilities) -> RenderMode:
     if caps.supports_list and n <= caps.max_list_items:
         return RenderMode.LIST
     return RenderMode.NUMBERED_TEXT
+
+
+def fatiar_texto(texto: str, limite: int) -> list[str]:
+    """Fatia em blocos ≤ limite, preferindo quebrar em fim de linha.
+
+    O canal impõe o teto (Telegram: 4096; WhatsApp interativo: 1024) e a API
+    REJEITA o excedente — sem fatiar, um listar_lembretes longo simplesmente
+    não chega. Semântica: as quebras de linha usadas como ponto de corte são
+    consumidas; o resto do texto é preservado byte a byte."""
+    if len(texto) <= limite:
+        return [texto]
+    partes: list[str] = []
+    resto = texto
+    while len(resto) > limite:
+        corte = resto.rfind("\n", 1, limite + 1)
+        if corte == -1:  # parágrafo maior que o limite: corte seco
+            partes.append(resto[:limite])
+            resto = resto[limite:]
+        else:
+            partes.append(resto[:corte])
+            resto = resto[corte + 1:]
+    if resto:
+        partes.append(resto)
+    return partes
 
 
 def render_numbered_text(texto: str, interacao: Choice) -> str:
