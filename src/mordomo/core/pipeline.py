@@ -5,6 +5,7 @@ Aqui nascem o trace (Langfuse) e os eventos de produto da conversa — é o
 identificador por PERGUNTA, que todo evento do turno carrega e que amarra
 recebi → roteei → chamei tool → gastei tokens → respondi."""
 
+import asyncio
 import logging
 import time
 import uuid
@@ -23,6 +24,17 @@ log = logging.getLogger(__name__)
 _TOOLS_MUTANTES = (
     "criar_lembrete", "cancelar_lembrete", "criar_evento", "guardar_info", "apagar_info"
 )
+
+# Um lock por thread do checkpointer (membro ou grupo). O debounce do adapter
+# só cancela o flush enquanto ele DORME: mensagem que chega durante os 3-10s
+# do turno criaria uma segunda invocação do grafo na MESMA thread — os dois
+# turnos leriam o mesmo checkpoint e o último a escrever apagaria o outro do
+# histórico. Cresce com o nº de threads ativas (família + grupos): dezenas.
+_locks_por_thread: dict[str, asyncio.Lock] = {}
+
+
+def _lock_da_thread(thread_id: str) -> asyncio.Lock:
+    return _locks_por_thread.setdefault(thread_id, asyncio.Lock())
 
 
 async def _turno_teve_efeito(turn_id: str) -> bool:
@@ -69,14 +81,6 @@ async def processar_entrada(
     turn_id = uuid.uuid4().hex[:12]
     cfg = config_invocacao(membro.id, membro.nome, membro.papel, turn_id, inbound.grupo_id)
 
-    await emitir_de(
-        cfg,
-        "message_received",
-        canal=inbound.canal,
-        veio_de_audio=inbound.veio_de_audio,
-        tamanho=len(inbound.texto),
-    )
-
     entrada = {
         "messages": [HumanMessage(inbound.texto)],
         "member_id": membro.id,
@@ -84,37 +88,48 @@ async def processar_entrada(
         "member_papel": membro.papel,
     }
 
+    # O perf_counter parte de ANTES do lock: se este turno esperou o anterior
+    # terminar, a espera é latência que o usuário sentiu — tem que ser medida.
     inicio = time.perf_counter()
     ok = True
-    for tentativa in (1, 2):
-        try:
-            resultado = await grafo.ainvoke(entrada, cfg)
-            texto = _texto_de(resultado["messages"][-1].content) or "…"
-            ok = True
-            break
-        except Exception:
-            ok = False
-            log.exception(
-                "Erro no grafo (membro %s, turno %s, tentativa %d)",
-                membro.id, turn_id, tentativa,
-            )
-            # Visto em produção (11/08): OpenRouter devolve 200 com choices=None
-            # e o parse explode — o retry do cliente não cobre erro de PARSE.
-            # Repetir o turno é seguro APENAS se nenhuma tool mutante rodou
-            # (senão duplicaríamos lembrete/evento) — e quem sabe disso é o
-            # próprio funil.
-            efeito = await _turno_teve_efeito(turn_id)
-            await emitir_de(cfg, "error", onde="grafo", tentativa=tentativa, efeito=efeito)
-            if tentativa == 1 and not efeito:
-                continue
-            if efeito:
-                texto = (
-                    "Fiz o que você pediu, mas tropecei ao redigir a resposta. 😅 "
-                    "Pode conferir com um \"que lembretes eu tenho?\" ou similar."
+    async with _lock_da_thread(cfg["configurable"]["thread_id"]):
+        await emitir_de(
+            cfg,
+            "message_received",
+            canal=inbound.canal,
+            veio_de_audio=inbound.veio_de_audio,
+            tamanho=len(inbound.texto),
+        )
+
+        for tentativa in (1, 2):
+            try:
+                resultado = await grafo.ainvoke(entrada, cfg)
+                texto = _texto_de(resultado["messages"][-1].content) or "…"
+                ok = True
+                break
+            except Exception:
+                ok = False
+                log.exception(
+                    "Erro no grafo (membro %s, turno %s, tentativa %d)",
+                    membro.id, turn_id, tentativa,
                 )
-            else:
-                texto = "Ops, tropecei aqui do meu lado. 😅 Pode repetir, por favor?"
-            break
+                # Visto em produção (11/08): OpenRouter devolve 200 com choices=None
+                # e o parse explode — o retry do cliente não cobre erro de PARSE.
+                # Repetir o turno é seguro APENAS se nenhuma tool mutante rodou
+                # (senão duplicaríamos lembrete/evento) — e quem sabe disso é o
+                # próprio funil.
+                efeito = await _turno_teve_efeito(turn_id)
+                await emitir_de(cfg, "error", onde="grafo", tentativa=tentativa, efeito=efeito)
+                if tentativa == 1 and not efeito:
+                    continue
+                if efeito:
+                    texto = (
+                        "Fiz o que você pediu, mas tropecei ao redigir a resposta. 😅 "
+                        "Pode conferir com um \"que lembretes eu tenho?\" ou similar."
+                    )
+                else:
+                    texto = "Ops, tropecei aqui do meu lado. 😅 Pode repetir, por favor?"
+                break
 
     # O evento que sustenta quase todo o dashboard: uma linha por turno, com o
     # tempo que o usuário REALMENTE esperou — não o tempo de uma chamada de LLM.
