@@ -34,8 +34,11 @@ def _barras_verticais(dados: dict[str, float], unidade: str = "") -> str:
         x = i * (larg_barra + gap)
         h = max(2, (valor / teto) * (altura - 30))
         y = altura - h - 18
+        # <title> = tooltip nativo do SVG, sem JS: o eixo mostra o rótulo
+        # truncado, o hover mostra o dado inteiro
         partes.append(
-            f'<rect x="{x}" y="{y:.1f}" width="{larg_barra}" height="{h:.1f}" rx="3" fill="{_PALETA[0]}"/>'
+            f'<rect x="{x}" y="{y:.1f}" width="{larg_barra}" height="{h:.1f}" rx="3" fill="{_PALETA[0]}">'
+            f"<title>{html.escape(rotulo)}: {valor:g}{unidade}</title></rect>"
             f'<text class="val" x="{x + larg_barra / 2}" y="{y - 4:.1f}">{valor:g}{unidade}</text>'
             f'<text class="eixo" x="{x + larg_barra / 2}" y="{altura - 4}">{html.escape(rotulo[-5:])}</text>'
         )
@@ -55,8 +58,9 @@ def _barras_horizontais(itens: list[tuple[str, float]], sufixo: str = "") -> str
     for i, (rotulo, valor) in enumerate(itens):
         pct = (valor / teto) * 100
         cor = _PALETA[i % len(_PALETA)]
+        dica = html.escape(f"{rotulo}: {valor:g}{sufixo}")
         linhas.append(
-            '<div class="hb">'
+            f'<div class="hb" title="{dica}">'
             f'<span class="hb-rot">{html.escape(str(rotulo))}</span>'
             f'<span class="hb-trilho"><span class="hb-cheio" style="width:{pct:.1f}%;background:{cor}"></span></span>'
             f'<span class="hb-val">{valor:g}{sufixo}</span>'
@@ -81,14 +85,30 @@ def _histograma_latencia(latencias: list[float]) -> str:
 # ── Blocos ───────────────────────────────────────────────────────────────
 
 
-def _kpi(rotulo: str, valor: str, nota: str = "", alerta: bool = False) -> str:
+def _kpi(rotulo: str, valor: str, nota: str = "", alerta: bool = False, delta: str = "") -> str:
     classe = "kpi alerta" if alerta else "kpi"
     return (
         f'<div class="{classe}"><span class="kpi-val">{html.escape(valor)}</span>'
         f'<span class="kpi-rot">{html.escape(rotulo)}</span>'
         + (f'<span class="kpi-nota">{html.escape(nota)}</span>' if nota else "")
+        + delta
         + "</div>"
     )
+
+
+def _delta(atual: float, anterior: float) -> str:
+    """Variação vs. a janela anterior, pronta para entrar no KPI.
+
+    Vazio quando não há base (anterior = 0) — melhor omitir do que inventar
+    percentual sobre zero. Cor neutra de propósito: custo subir é ruim, uso
+    subir é bom; quem lê é que julga."""
+    if not anterior:
+        return ""
+    var = (atual - anterior) / anterior
+    if abs(var) < 0.005:
+        return '<span class="kpi-delta">= vs. período anterior</span>'
+    seta = "▲" if var > 0 else "▼"
+    return f'<span class="kpi-delta">{seta} {var:+.0%} vs. período anterior</span>'
 
 
 def _ms(v: float | None) -> str:
@@ -135,8 +155,11 @@ def _mini_trajetoria(valores: list[float]) -> str:
     for i, v in enumerate(valores):
         h = max(2.0, v * (alt - 4))
         cor = _PALETA[1] if v >= 0.9 else (_PALETA[2] if v >= 0.7 else _PALETA[3])
+        atras = len(valores) - 1 - i
+        rotulo = "run mais recente" if atras == 0 else f"{atras} run(s) atrás"
         barras.append(
-            f'<rect x="{i * (larg + 3)}" y="{alt - h:.1f}" width="{larg}" height="{h:.1f}" rx="2" fill="{cor}"/>'
+            f'<rect x="{i * (larg + 3)}" y="{alt - h:.1f}" width="{larg}" height="{h:.1f}" rx="2" fill="{cor}">'
+            f"<title>{rotulo}: {v:.0%}</title></rect>"
         )
     return (
         f'<svg width="{len(valores) * (larg + 3)}" height="{alt}" '
@@ -147,17 +170,31 @@ def _mini_trajetoria(valores: list[float]) -> str:
 def montar_html(d: dict) -> str:
     t, c, f = d["turnos"], d["custo"], d["ferramentas"]
     total_turnos = t["total"]
+    ant = d.get("anterior") or {}
 
     membros_ativos = max(t["membros_por_dia"].values(), default=0)
     kpis_analytics = "".join(
         [
-            _kpi("turnos", str(total_turnos), f"últimos {d['dias']} dias"),
+            _kpi(
+                "turnos", str(total_turnos), f"últimos {d['dias']} dias",
+                delta=_delta(total_turnos, ant.get("turnos", 0)),
+            ),
             _kpi("pico de membros/dia", str(membros_ativos)),
-            _kpi("lembretes criados", str(d["lembretes"]["criados"])),
-            _kpi("custo total", f"US$ {c['total_usd']:.4f}"),
+            _kpi(
+                "lembretes criados", str(d["lembretes"]["criados"]),
+                delta=_delta(d["lembretes"]["criados"], ant.get("lembretes", 0)),
+            ),
+            _kpi(
+                "custo total", f"US$ {c['total_usd']:.4f}",
+                delta=_delta(c["total_usd"], ant.get("usd", 0.0)),
+            ),
             _kpi(
                 "custo por turno",
                 f"US$ {(c['total_usd'] / total_turnos):.4f}" if total_turnos else "—",
+                delta=_delta(
+                    c["total_usd"] / total_turnos,
+                    ant.get("usd", 0.0) / ant["turnos"] if ant.get("turnos") else 0.0,
+                ) if total_turnos else "",
             ),
         ]
     )
@@ -218,6 +255,34 @@ def montar_html(d: dict) -> str:
         for e in evals
     ) or "<tr><td colspan='6' class='vazio'>Nenhum run salvo — rode make evals com --salvar.</td></tr>"
 
+    prod = d["produto"]
+    kpis_produto = "".join(
+        [
+            _kpi(
+                "documentos no cofre", str(prod["documentos"]),
+                delta=_delta(prod["documentos"], ant.get("documentos", 0)),
+            ),
+            _kpi(
+                "pedidos da família", str(prod["pedidos"]),
+                delta=_delta(prod["pedidos"], ant.get("pedidos", 0)),
+            ),
+            _kpi(
+                "issues abertas", str(prod["issues_criadas"]),
+                "pedido virou backlog" if prod["issues_criadas"] else "",
+                alerta=prod["issues_falhas"] > 0,
+            ),
+            _kpi("casos de eval propostos", str(prod["casos_propostos"]), "pela curadoria"),
+            _kpi("dashboards enviados", str(prod["dashboards_enviados"])),
+        ]
+    )
+    aviso_issues = ""
+    if prod["issues_falhas"]:
+        aviso_issues = (
+            f"<p class='aviso'>{prod['issues_falhas']} pedido(s) NÃO viraram issue "
+            "(falha na API do GitHub) — confira o token e os logs.</p>"
+        )
+    conv = prod["convites"]
+
     s = d["saude"]
     # charset: sem ele o Safari chuta latin-1 e quebra acento/emoji (visto no
     # iPhone do Humberto). viewport: sem ele o celular renderiza a 980px e dá
@@ -257,6 +322,7 @@ def montar_html(d: dict) -> str:
   .kpi-val {{ font-size:1.5rem; font-weight:650; letter-spacing:-.02em; }}
   .kpi-rot {{ color:var(--suave); font-size:.8rem; }}
   .kpi-nota {{ color:var(--suave); font-size:.7rem; opacity:.8; }}
+  .kpi-delta {{ color:var(--suave); font-size:.7rem; font-variant-numeric:tabular-nums; }}
   .card {{ background:var(--cartao); border:1px solid var(--linha); border-radius:10px; padding:1rem 1.1rem; }}
   .gr {{ width:100%; height:auto; max-height:180px; }}
   .gr .val {{ font-size:9px; fill:var(--suave); text-anchor:middle; }}
@@ -313,6 +379,28 @@ def montar_html(d: dict) -> str:
         ("disparados", d["lembretes"]["disparados"]),
         ("proativos enviados", d["lembretes"]["proativos_enviados"]),
     ])}
+  </div>
+
+  <h1 class="secao">📦 Produto <span class="secao-sub">o que existe além da conversa</span></h1>
+  <div class="kpis">{kpis_produto}</div>
+  {aviso_issues}
+
+  <h2>Pedidos por categoria</h2>
+  <div class="card">{
+      _barras_horizontais([(cat, n) for cat, n in prod["pedidos_por_categoria"]])
+      if prod["pedidos_por_categoria"]
+      else "<p class='vazio'>Nenhum pedido no período — a família está servida. 🤵</p>"
+  }</div>
+
+  <h2>Convites</h2>
+  <div class="card">
+    {_barras_horizontais([
+        ("criados", conv["criados"]),
+        ("usados", conv["usados"]),
+        ("rejeitados", conv["rejeitados"]),
+    ])}
+    <p class="vazio">Curadoria: {prod["curadorias"]} rodada(s) no período,
+       {prod["casos_propostos"]} caso(s) de eval proposto(s).</p>
   </div>
 
   <h1 class="secao">🔬 Observabilidade <span class="secao-sub">como o sistema se comporta</span></h1>

@@ -68,6 +68,18 @@ def _nome_da_legenda(legenda: str) -> str:
     return nome or legenda.strip()
 
 
+def _dias_do_dashboard(args: str | None, padrao: int = 30) -> int | None:
+    """Janela do /dashboard a partir do argumento. None = inválido (o handler
+    responde com a dica de uso); fora da faixa vira o limite mais próximo."""
+    if not args:
+        return padrao
+    try:
+        dias = int(args.split()[0])
+    except ValueError:
+        return None
+    return max(1, min(365, dias))
+
+
 def _direcionado_ao_bot(texto: str, username: str, reply_ao_bot: bool) -> tuple[bool, str]:
     """ADR-008: em grupo o mordomo só age quando chamado — menção ao @username
     (removida do texto) ou reply a uma mensagem dele. Devolve (é_para_mim, texto)."""
@@ -115,22 +127,28 @@ class TelegramAdapter:
             )
 
         @self.dp.message(Command("dashboard"))
-        async def dashboard(msg: Message) -> None:
+        async def dashboard(msg: Message, command: CommandObject) -> None:
             # Gestão à vista sob demanda: gera com o dado FRESCO do banco de
             # produção e envia o HTML — sempre atualizado, sem infra nova.
             membro = await resolver_membro("telegram", str(msg.from_user.id))
             if membro is None or membro.papel != "adulto":
                 await msg.answer("O painel de gestão é coisa de adulto por aqui. 😉")
                 return
+            # /dashboard 7 muda a janela SEM pôr filtro (JS) dentro do HTML —
+            # o arquivo continua estático e autocontido, quem filtra é a geração
+            dias = _dias_do_dashboard(command.args)
+            if dias is None:
+                await msg.answer("Uso: /dashboard [dias] — por exemplo, /dashboard 7. 🤵")
+                return
             from ..reporting.dashboard import gerar_html
 
             await self.bot.send_chat_action(msg.chat.id, "upload_document")
-            conteudo = await gerar_html(30)
+            conteudo = await gerar_html(dias)
             await msg.answer_document(
                 BufferedInputFile(conteudo.encode("utf-8"), filename="mordomo-dashboard.html"),
-                caption="Gestão à vista dos últimos 30 dias — abra no navegador. 📊",
+                caption=f"Gestão à vista dos últimos {dias} dias — abra no navegador. 📊",
             )
-            await emitir("dashboard_sent", membro.id, session_id_de(membro.id))
+            await emitir("dashboard_sent", membro.id, session_id_de(membro.id), dias=dias)
 
         @self.dp.message(Command("curadoria"))
         async def curadoria_cmd(msg: Message) -> None:

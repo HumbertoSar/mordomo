@@ -50,22 +50,32 @@ def percentil(valores: list[float], p: float) -> float | None:
     return ordenados[baixo] + (ordenados[alto] - ordenados[baixo]) * (pos - baixo)
 
 
-async def _eventos(desde: datetime, tipos: tuple[str, ...]) -> list[ProductEvent]:
+def _janela(desde: datetime, ate: datetime | None):
+    """Condições de período. `ate` existe para a janela ANTERIOR (comparação)."""
+    cond = [ProductEvent.ts >= desde]
+    if ate is not None:
+        cond.append(ProductEvent.ts < ate)
+    return cond
+
+
+async def _eventos(
+    desde: datetime, tipos: tuple[str, ...], ate: datetime | None = None
+) -> list[ProductEvent]:
     async with Sessao() as s:
         res = await s.execute(
             select(ProductEvent)
-            .where(ProductEvent.ts >= desde, ProductEvent.tipo.in_(tipos))
+            .where(*_janela(desde, ate), ProductEvent.tipo.in_(tipos))
             .order_by(ProductEvent.ts)
         )
         return list(res.scalars())
 
 
-async def contagem_por_tipo(desde: datetime) -> dict[str, int]:
+async def contagem_por_tipo(desde: datetime, ate: datetime | None = None) -> dict[str, int]:
     """GROUP BY tipo — o panorama mais barato que existe."""
     async with Sessao() as s:
         res = await s.execute(
             select(ProductEvent.tipo, func.count())
-            .where(ProductEvent.ts >= desde)
+            .where(*_janela(desde, ate))
             .group_by(ProductEvent.tipo)
         )
         return {tipo: n for tipo, n in res.all()}
@@ -198,6 +208,59 @@ async def lembretes(desde: datetime) -> dict:
     }
 
 
+async def produto(desde: datetime) -> dict:
+    """As features fora do turno de conversa: cofre, pedidos, curadoria, convites.
+
+    Regra viva do projeto: toda feature nova nasce instrumentada — esta query é
+    onde o evento dela passa a aparecer no placar."""
+    contagens = await contagem_por_tipo(desde)
+
+    pedidos = await _eventos(desde, ("feature_requested",))
+    por_categoria = Counter(
+        (e.payload or {}).get("categoria", "?") for e in pedidos
+    )
+
+    issues = await _eventos(desde, ("feature_issue_created",))
+    issues_ok = sum(1 for e in issues if (e.payload or {}).get("ok"))
+
+    curadorias = await _eventos(desde, ("curation_run",))
+    casos_propostos = sum(int((e.payload or {}).get("casos_propostos", 0)) for e in curadorias)
+
+    return {
+        "documentos": contagens.get("document_stored", 0),
+        "pedidos": len(pedidos),
+        "pedidos_por_categoria": por_categoria.most_common(),
+        "issues_criadas": issues_ok,
+        "issues_falhas": len(issues) - issues_ok,
+        "curadorias": len(curadorias),
+        "casos_propostos": casos_propostos,
+        "convites": {
+            "criados": contagens.get("invite_created", 0),
+            "usados": contagens.get("invite_used", 0),
+            "rejeitados": contagens.get("invite_rejected", 0),
+        },
+        "dashboards_enviados": contagens.get("dashboard_sent", 0),
+    }
+
+
+async def resumo(desde: datetime, ate: datetime | None = None) -> dict:
+    """Os totais que os KPIs comparam com o período anterior — só o essencial,
+    para não pagar duas vezes o preço de `coletar` inteiro."""
+    contagens = await contagem_por_tipo(desde, ate)
+    usd = 0.0
+    for e in await _eventos(desde, ("llm_usage",), ate):
+        p = e.payload or {}
+        usd += custo_usd(p.get("modelo"), int(p.get("input_tokens", 0)),
+                         int(p.get("output_tokens", 0))) or 0.0
+    return {
+        "turnos": contagens.get("turn_completed", 0),
+        "lembretes": contagens.get("reminder_created", 0),
+        "documentos": contagens.get("document_stored", 0),
+        "pedidos": contagens.get("feature_requested", 0),
+        "usd": usd,
+    }
+
+
 async def saude(desde: datetime) -> dict:
     contagens = await contagem_por_tipo(desde)
     return {
@@ -233,19 +296,33 @@ async def funil(desde: datetime) -> list[tuple[str, int]]:
         return saida
 
 
+# Tipos que legitimamente nascem SEM turn_id: proativos (não respondem a uma
+# pergunta), unknown_user (não há membro) e comandos fora do grafo (/dashboard,
+# /convidar, /vincular, documento no cofre, curadoria agendada). Todo evento
+# novo emitido fora de um turno PRECISA entrar aqui, senão vira falso órfão.
+SEM_TURNO_POR_DESENHO = (
+    "reminder_fired",
+    "proactive_sent",
+    "unknown_user",
+    "document_stored",
+    "dashboard_sent",
+    "curation_run",
+    "invite_created",
+    "invite_used",
+    "invite_rejected",
+)
+
+
 async def orfaos(desde: datetime) -> int:
     """Eventos sem turn_id — a métrica que vigia a própria instrumentação.
 
-    Fora os proativos (reminder_fired/proactive_sent, que não nascem de uma
-    pergunta) e unknown_user, este número tem que ser ZERO."""
+    Fora os tipos de `SEM_TURNO_POR_DESENHO`, este número tem que ser ZERO."""
     async with Sessao() as s:
         res = await s.execute(
             select(func.count()).where(
                 ProductEvent.ts >= desde,
                 ProductEvent.turn_id.is_(None),
-                ProductEvent.tipo.not_in(
-                    ("reminder_fired", "proactive_sent", "unknown_user")
-                ),
+                ProductEvent.tipo.not_in(SEM_TURNO_POR_DESENHO),
             )
         )
         return res.scalar_one()
@@ -253,7 +330,8 @@ async def orfaos(desde: datetime) -> int:
 
 async def coletar(dias: int = 30) -> dict:
     """Tudo que o dashboard precisa, numa passada."""
-    desde = datetime.now(UTC) - timedelta(days=dias)
+    agora = datetime.now(UTC)
+    desde = agora - timedelta(days=dias)
     return {
         "dias": dias,
         "desde": desde,
@@ -263,8 +341,11 @@ async def coletar(dias: int = 30) -> dict:
         "ferramentas": await ferramentas(desde),
         "custo": await custo(desde),
         "lembretes": await lembretes(desde),
+        "produto": await produto(desde),
         "saude": await saude(desde),
         "funil": await funil(desde),
         "orfaos": await orfaos(desde),
         "contagens": await contagem_por_tipo(desde),
+        # A MESMA janela, deslocada para trás: é contra ela que os KPIs mostram Δ.
+        "anterior": await resumo(agora - timedelta(days=2 * dias), desde),
     }

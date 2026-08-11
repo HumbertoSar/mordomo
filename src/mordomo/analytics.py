@@ -3,9 +3,17 @@
 Cada evento é uma linha em product_events. Convenções de tipo (alinhadas ao
 doc `gestao-a-vista-agente-whatsapp.md`):
 
-  message_received · orchestrator_decision · orchestrator_parse_error ·
-  tool_called · tool_result · llm_usage · turn_completed · message_sent ·
-  reminder_created · reminder_fired · proactive_sent · unknown_user · error
+  do turno de conversa:
+    message_received · orchestrator_decision · orchestrator_parse_error ·
+    tool_called · tool_result · llm_usage · turn_completed · message_sent ·
+    reminder_created · feature_requested · feature_issue_created · error
+  fora de turno (comandos, jobs — SEM turn_id por desenho):
+    reminder_fired · proactive_sent · unknown_user · document_stored ·
+    dashboard_sent · curation_run · invite_created · invite_used · invite_rejected
+
+Tipo novo emitido FORA de um turno tem que entrar em
+`reporting.queries.SEM_TURNO_POR_DESENHO`, senão infla o KPI de eventos
+órfãos do dashboard como falso positivo.
 
 REGRA DO PROJETO: emita sempre por `emitir_de(config, ...)`, nunca por `emitir()`
 direto, quando houver um `config` à mão. Evento sem `session_id`/`turn_id` não

@@ -52,7 +52,10 @@ notify.py: proatividade abstraída (scheduler → canal)  ·  identity.py: (cana
    nunca `emitir()` cru quando houver `config` à mão. `emitir_de` puxa
    member/session/**turn_id** do `configurable`; evento sem `turn_id` não entra
    em nenhum funil e vira linha órfã (o dashboard tem um KPI só para vigiar
-   isso, e ele tem que ficar em ZERO). Todo caminho de saída emite `tool_result`,
+   isso, e ele tem que ficar em ZERO). Evento emitido FORA de um turno
+   (comando, job proativo) tem que entrar em
+   `reporting/queries.py::SEM_TURNO_POR_DESENHO`, senão vira falso órfão nesse
+   KPI. Todo caminho de saída emite `tool_result`,
    inclusive os de falha — o `motivo` é o que vira caso novo no eval.
    Falha de analytics nunca derruba a conversa.
 5. **Mexeu em prompt ou em `resolver_data` → rode `make evals`** e anote o
