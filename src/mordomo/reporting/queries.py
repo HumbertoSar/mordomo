@@ -83,6 +83,14 @@ async def turnos(desde: datetime) -> dict:
         membros_por_dia[d].add(e.member_id)
 
     falhos = sum(1 for e in eventos if e.payload and e.payload.get("ok") is False)
+
+    # Latência POR DIA: é a série que responde "está piorando?" — o agregado
+    # do período esconde tendência.
+    lat_por_dia: dict[str, list[float]] = defaultdict(list)
+    for e in eventos:
+        if e.payload:
+            lat_por_dia[_dia(e.ts)].append(float(e.payload.get("latencia_ms", 0)))
+
     return {
         "total": len(eventos),
         "falhos": falhos,
@@ -93,6 +101,8 @@ async def turnos(desde: datetime) -> dict:
         "por_dia": dict(sorted(por_dia.items())),
         "membros_por_dia": {d: len(m) for d, m in sorted(membros_por_dia.items())},
         "latencias_ms": latencias,
+        "p50_por_dia": {d: percentil(v, 0.50) for d, v in sorted(lat_por_dia.items())},
+        "p95_por_dia": {d: percentil(v, 0.95) for d, v in sorted(lat_por_dia.items())},
     }
 
 

@@ -90,20 +90,76 @@ def _ms(v: float | None) -> str:
     return "—" if v is None else f"{v / 1000:.1f}s"
 
 
+def _serie_evals() -> list[dict]:
+    """Lê evals/results/history.csv (versionado) e devolve, por eval, o último
+    run + a trajetória de acurácia — a seção Evaluation nasce daqui."""
+    import csv
+
+    caminho = pathlib.Path(__file__).resolve().parents[3] / "evals" / "results" / "history.csv"
+    if not caminho.exists():
+        return []
+    with caminho.open(encoding="utf-8", newline="") as f:
+        linhas = list(csv.DictReader(f))
+    por_eval: dict[str, list[dict]] = {}
+    for linha in linhas:
+        por_eval.setdefault(linha["eval"], []).append(linha)
+    saida = []
+    for nome, runs in por_eval.items():
+        ultimo = runs[-1]
+        saida.append(
+            {
+                "nome": nome,
+                "acertos": ultimo["acertos"],
+                "total": ultimo["total"],
+                "acuracia": float(ultimo["acuracia"]),
+                "quando": ultimo["ts"][:16].replace("T", " "),
+                "commit": ultimo["commit"],
+                "detalhe": ultimo.get("detalhe", ""),
+                "trajetoria": [float(r["acuracia"]) for r in runs[-8:]],
+            }
+        )
+    return sorted(saida, key=lambda x: x["nome"])
+
+
+def _mini_trajetoria(valores: list[float]) -> str:
+    """Sparkline de acurácia em SVG — a história do eval numa célula de tabela."""
+    if not valores:
+        return ""
+    larg, alt = 12, 26
+    barras = []
+    for i, v in enumerate(valores):
+        h = max(2.0, v * (alt - 4))
+        cor = _PALETA[1] if v >= 0.9 else (_PALETA[2] if v >= 0.7 else _PALETA[3])
+        barras.append(
+            f'<rect x="{i * (larg + 3)}" y="{alt - h:.1f}" width="{larg}" height="{h:.1f}" rx="2" fill="{cor}"/>'
+        )
+    return (
+        f'<svg width="{len(valores) * (larg + 3)}" height="{alt}" '
+        f'viewBox="0 0 {len(valores) * (larg + 3)} {alt}">{"".join(barras)}</svg>'
+    )
+
+
 def montar_html(d: dict) -> str:
     t, c, f = d["turnos"], d["custo"], d["ferramentas"]
     total_turnos = t["total"]
 
-    kpis = "".join(
+    membros_ativos = max(t["membros_por_dia"].values(), default=0)
+    kpis_analytics = "".join(
         [
             _kpi("turnos", str(total_turnos), f"últimos {d['dias']} dias"),
-            _kpi("latência p50", _ms(t["p50_ms"])),
-            _kpi("latência p95", _ms(t["p95_ms"]), "cauda", alerta=bool(t["p95_ms"] and t["p95_ms"] > 10000)),
+            _kpi("pico de membros/dia", str(membros_ativos)),
+            _kpi("lembretes criados", str(d["lembretes"]["criados"])),
             _kpi("custo total", f"US$ {c['total_usd']:.4f}"),
             _kpi(
                 "custo por turno",
                 f"US$ {(c['total_usd'] / total_turnos):.4f}" if total_turnos else "—",
             ),
+        ]
+    )
+    kpis_obs = "".join(
+        [
+            _kpi("latência p50", _ms(t["p50_ms"])),
+            _kpi("latência p95", _ms(t["p95_ms"]), "cauda", alerta=bool(t["p95_ms"] and t["p95_ms"] > 10000)),
             _kpi("taxa de erro", f"{t['taxa_erro']:.0%}", alerta=t["taxa_erro"] > 0.05),
             _kpi(
                 "eventos órfãos",
@@ -113,6 +169,8 @@ def montar_html(d: dict) -> str:
             ),
         ]
     )
+
+    p95_por_dia = {k: round(v / 1000, 1) for k, v in (t.get("p95_por_dia") or {}).items() if v}
 
     custo_por_no = sorted(
         ((no, round(v["usd"], 5)) for no, v in c["por_no"].items()),
@@ -145,6 +203,16 @@ def montar_html(d: dict) -> str:
             + " — o custo acima está SUBESTIMADO. Atualize <code>reporting/precos.py</code>.</p>"
         )
 
+    evals = _serie_evals()
+    linhas_evals = "".join(
+        f"<tr><td>{html.escape(e['nome'])}</td>"
+        f"<td class='num'>{e['acertos']}/{e['total']} ({e['acuracia']:.0%})</td>"
+        f"<td>{_mini_trajetoria(e['trajetoria'])}</td>"
+        f"<td>{html.escape(e['quando'])}</td><td><code>{html.escape(e['commit'] or '—')}</code></td>"
+        f"<td class='detalhe'>{html.escape(e['detalhe'][:60])}</td></tr>"
+        for e in evals
+    ) or "<tr><td colspan='6' class='vazio'>Nenhum run salvo — rode make evals com --salvar.</td></tr>"
+
     s = d["saude"]
     return f"""<title>Mordomo — gestão à vista</title>
 <style>
@@ -167,6 +235,10 @@ def montar_html(d: dict) -> str:
   h1 {{ font-size:1.6rem; margin:0 0 .25rem; letter-spacing:-.02em; }}
   h2 {{ font-size:1rem; margin:2.5rem 0 .75rem; text-transform:uppercase;
         letter-spacing:.08em; color:var(--suave); font-weight:600; }}
+  h1.secao {{ font-size:1.25rem; margin:3.5rem 0 1rem; padding-top:1.5rem;
+              border-top:2px solid var(--linha); }}
+  .secao-sub {{ font-size:.85rem; color:var(--suave); font-weight:400; margin-left:.5rem; }}
+  td.detalhe {{ color:var(--suave); font-size:.78rem; }}
   .sub {{ color:var(--suave); margin:0 0 2rem; font-size:.9rem; }}
   .kpis {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:.75rem; }}
   .kpi {{ background:var(--cartao); border:1px solid var(--linha); border-radius:10px;
@@ -202,10 +274,32 @@ def montar_html(d: dict) -> str:
   <p class="sub">Últimos {d["dias"]} dias · gerado em {d["gerado_em"].strftime("%d/%m/%Y %H:%M")}
      ({d["gerado_em"].tzname()})</p>
 
-  <div class="kpis">{kpis}</div>
+  <h1 class="secao">📊 Analytics <span class="secao-sub">o que a família usa</span></h1>
+  <div class="kpis">{kpis_analytics}</div>
 
   <h2>Turnos por dia</h2>
   <div class="card rolar">{_barras_verticais({k: v for k, v in d["turnos"]["por_dia"].items()})}</div>
+
+  <h2>Funil do turno</h2>
+  <div class="card">{_barras_horizontais([(r, n) for r, n in d["funil"]], " turnos")}</div>
+
+  <h2>Para onde o supervisor roteou</h2>
+  <div class="card">{_barras_horizontais(sorted(d["roteamento"].items(), key=lambda x: -x[1]))}</div>
+
+  <h2>Lembretes</h2>
+  <div class="card">
+    {_barras_horizontais([
+        ("criados", d["lembretes"]["criados"]),
+        ("disparados", d["lembretes"]["disparados"]),
+        ("proativos enviados", d["lembretes"]["proativos_enviados"]),
+    ])}
+  </div>
+
+  <h1 class="secao">🔬 Observabilidade <span class="secao-sub">como o sistema se comporta</span></h1>
+  <div class="kpis">{kpis_obs}</div>
+
+  <h2>Latência p95 por dia (s)</h2>
+  <div class="card rolar">{_barras_verticais(p95_por_dia, "s")}</div>
 
   <h2>Distribuição de latência</h2>
   <div class="card">
@@ -213,12 +307,6 @@ def montar_html(d: dict) -> str:
     <p class="vazio">p50 {_ms(d["turnos"]["p50_ms"])} · p95 {_ms(d["turnos"]["p95_ms"])} ·
        máx {_ms(d["turnos"]["max_ms"])}</p>
   </div>
-
-  <h2>Funil do turno</h2>
-  <div class="card">{_barras_horizontais([(r, n) for r, n in d["funil"]], " turnos")}</div>
-
-  <h2>Para onde o supervisor roteou</h2>
-  <div class="card">{_barras_horizontais(sorted(d["roteamento"].items(), key=lambda x: -x[1]))}</div>
 
   <h2>Custo por nó — rotear vs. executar</h2>
   <div class="card">
@@ -240,15 +328,25 @@ def montar_html(d: dict) -> str:
     {motivos}
   </div>
 
-  <h2>Lembretes e saúde</h2>
+  <h2>Saúde</h2>
   <div class="card">
     {_barras_horizontais([
-        ("lembretes criados", d["lembretes"]["criados"]),
-        ("lembretes disparados", d["lembretes"]["disparados"]),
         ("erros no grafo", s["erros_grafo"]),
         ("falhas de parse do roteador", s["falhas_de_parse"]),
         ("mensagens de desconhecidos", s["desconhecidos"]),
     ])}
+    <p class="vazio">Para investigar UMA conversa específica (o replay passo a passo),
+       use os traces no Langfuse — este painel mostra o agregado.</p>
+  </div>
+
+  <h1 class="secao">🧪 Evaluation <span class="secao-sub">a qualidade, medida</span></h1>
+  <div class="card">
+    <div class="rolar"><table>
+      <tr><th>eval</th><th>último resultado</th><th>trajetória</th><th>quando</th><th>commit</th><th>detalhe</th></tr>
+      {linhas_evals}
+    </table></div>
+    <p class="vazio">Fonte: evals/results/history.csv (runs salvos com --salvar).
+       Cada barra da trajetória é um run; verde ≥ 90%, laranja ≥ 70%, vermelho abaixo.</p>
   </div>
 
   <p class="rodape">
@@ -261,10 +359,14 @@ def montar_html(d: dict) -> str:
 """
 
 
+async def gerar_html(dias: int = 30) -> str:
+    """O dashboard como string — é o que o comando /dashboard do chat envia."""
+    return montar_html(await queries.coletar(dias))
+
+
 async def _gerar(dias: int, saida: pathlib.Path) -> pathlib.Path:
-    dados = await queries.coletar(dias)
     saida.parent.mkdir(parents=True, exist_ok=True)
-    saida.write_text(montar_html(dados), encoding="utf-8")
+    saida.write_text(await gerar_html(dias), encoding="utf-8")
     return saida
 
 

@@ -100,6 +100,24 @@ class TelegramAdapter:
                 "da agenda (\"o que temos sábado?\")."
             )
 
+        @self.dp.message(Command("dashboard"))
+        async def dashboard(msg: Message) -> None:
+            # Gestão à vista sob demanda: gera com o dado FRESCO do banco de
+            # produção e envia o HTML — sempre atualizado, sem infra nova.
+            membro = await resolver_membro("telegram", str(msg.from_user.id))
+            if membro is None or membro.papel != "adulto":
+                await msg.answer("O painel de gestão é coisa de adulto por aqui. 😉")
+                return
+            from ..reporting.dashboard import gerar_html
+
+            await self.bot.send_chat_action(msg.chat.id, "upload_document")
+            conteudo = await gerar_html(30)
+            await msg.answer_document(
+                BufferedInputFile(conteudo.encode("utf-8"), filename="mordomo-dashboard.html"),
+                caption="Gestão à vista dos últimos 30 dias — abra no navegador. 📊",
+            )
+            await emitir("dashboard_sent", membro.id, session_id_de(membro.id))
+
         @self.dp.message(Command("convidar"))
         async def convidar(msg: Message, command: CommandObject) -> None:
             membro = await resolver_membro("telegram", str(msg.from_user.id))

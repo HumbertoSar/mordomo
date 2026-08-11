@@ -19,6 +19,10 @@
   h1 { font-size:1.6rem; margin:0 0 .25rem; letter-spacing:-.02em; }
   h2 { font-size:1rem; margin:2.5rem 0 .75rem; text-transform:uppercase;
         letter-spacing:.08em; color:var(--suave); font-weight:600; }
+  h1.secao { font-size:1.25rem; margin:3.5rem 0 1rem; padding-top:1.5rem;
+              border-top:2px solid var(--linha); }
+  .secao-sub { font-size:.85rem; color:var(--suave); font-weight:400; margin-left:.5rem; }
+  td.detalhe { color:var(--suave); font-size:.78rem; }
   .sub { color:var(--suave); margin:0 0 2rem; font-size:.9rem; }
   .kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:.75rem; }
   .kpi { background:var(--cartao); border:1px solid var(--linha); border-radius:10px;
@@ -51,33 +55,45 @@
 </style>
 <div class="wrap">
   <h1>🤵 Mordomo da Família — gestão à vista</h1>
-  <p class="sub">Últimos 30 dias · gerado em 10/08/2026 15:27
+  <p class="sub">Últimos 30 dias · gerado em 11/08/2026 13:48
      (-03)</p>
 
-  <div class="kpis"><div class="kpi"><span class="kpi-val">8</span><span class="kpi-rot">turnos</span><span class="kpi-nota">últimos 30 dias</span></div><div class="kpi"><span class="kpi-val">6.1s</span><span class="kpi-rot">latência p50</span></div><div class="kpi alerta"><span class="kpi-val">19.8s</span><span class="kpi-rot">latência p95</span><span class="kpi-nota">cauda</span></div><div class="kpi"><span class="kpi-val">US$ 0.0538</span><span class="kpi-rot">custo total</span></div><div class="kpi"><span class="kpi-val">US$ 0.0067</span><span class="kpi-rot">custo por turno</span></div><div class="kpi"><span class="kpi-val">0%</span><span class="kpi-rot">taxa de erro</span></div><div class="kpi alerta"><span class="kpi-val">14</span><span class="kpi-rot">eventos órfãos</span><span class="kpi-nota">sem turn_id — tem que ser 0</span></div></div>
+  <h1 class="secao">📊 Analytics <span class="secao-sub">o que a família usa</span></h1>
+  <div class="kpis"><div class="kpi"><span class="kpi-val">11</span><span class="kpi-rot">turnos</span><span class="kpi-nota">últimos 30 dias</span></div><div class="kpi"><span class="kpi-val">1</span><span class="kpi-rot">pico de membros/dia</span></div><div class="kpi"><span class="kpi-val">4</span><span class="kpi-rot">lembretes criados</span></div><div class="kpi"><span class="kpi-val">US$ 0.0780</span><span class="kpi-rot">custo total</span></div><div class="kpi"><span class="kpi-val">US$ 0.0071</span><span class="kpi-rot">custo por turno</span></div></div>
 
   <h2>Turnos por dia</h2>
-  <div class="card rolar"><svg class="gr" viewBox="0 0 240 150" role="img"><rect x="0" y="12.0" width="34" height="120.0" rx="3" fill="#4f7cff"/><text class="val" x="17.0" y="8.0">8</text><text class="eixo" x="17.0" y="146">08-10</text></svg></div>
+  <div class="card rolar"><svg class="gr" viewBox="0 0 240 150" role="img"><rect x="0" y="12.0" width="34" height="120.0" rx="3" fill="#4f7cff"/><text class="val" x="17.0" y="8.0">11</text><text class="eixo" x="17.0" y="146">08-10</text></svg></div>
+
+  <h2>Funil do turno</h2>
+  <div class="card"><div class="hb"><span class="hb-rot">recebeu mensagem</span><span class="hb-trilho"><span class="hb-cheio" style="width:100.0%;background:#4f7cff"></span></span><span class="hb-val">11 turnos</span></div><div class="hb"><span class="hb-rot">roteou</span><span class="hb-trilho"><span class="hb-cheio" style="width:100.0%;background:#22a06b"></span></span><span class="hb-val">11 turnos</span></div><div class="hb"><span class="hb-rot">usou ferramenta</span><span class="hb-trilho"><span class="hb-cheio" style="width:36.4%;background:#e8912d"></span></span><span class="hb-val">4 turnos</span></div><div class="hb"><span class="hb-rot">concluiu o turno</span><span class="hb-trilho"><span class="hb-cheio" style="width:100.0%;background:#c4453f"></span></span><span class="hb-val">11 turnos</span></div><div class="hb"><span class="hb-rot">respondeu no canal</span><span class="hb-trilho"><span class="hb-cheio" style="width:100.0%;background:#8b5cf6"></span></span><span class="hb-val">11 turnos</span></div></div>
+
+  <h2>Para onde o supervisor roteou</h2>
+  <div class="card"><div class="hb"><span class="hb-rot">lembretes</span><span class="hb-trilho"><span class="hb-cheio" style="width:100.0%;background:#4f7cff"></span></span><span class="hb-val">8</span></div><div class="hb"><span class="hb-rot">responder</span><span class="hb-trilho"><span class="hb-cheio" style="width:75.0%;background:#22a06b"></span></span><span class="hb-val">6</span></div></div>
+
+  <h2>Lembretes</h2>
+  <div class="card">
+    <div class="hb"><span class="hb-rot">criados</span><span class="hb-trilho"><span class="hb-cheio" style="width:100.0%;background:#4f7cff"></span></span><span class="hb-val">4</span></div><div class="hb"><span class="hb-rot">disparados</span><span class="hb-trilho"><span class="hb-cheio" style="width:0.0%;background:#22a06b"></span></span><span class="hb-val">0</span></div><div class="hb"><span class="hb-rot">proativos enviados</span><span class="hb-trilho"><span class="hb-cheio" style="width:0.0%;background:#e8912d"></span></span><span class="hb-val">0</span></div>
+  </div>
+
+  <h1 class="secao">🔬 Observabilidade <span class="secao-sub">como o sistema se comporta</span></h1>
+  <div class="kpis"><div class="kpi"><span class="kpi-val">6.2s</span><span class="kpi-rot">latência p50</span></div><div class="kpi alerta"><span class="kpi-val">18.6s</span><span class="kpi-rot">latência p95</span><span class="kpi-nota">cauda</span></div><div class="kpi"><span class="kpi-val">0%</span><span class="kpi-rot">taxa de erro</span></div><div class="kpi alerta"><span class="kpi-val">14</span><span class="kpi-rot">eventos órfãos</span><span class="kpi-nota">sem turn_id — tem que ser 0</span></div></div>
+
+  <h2>Latência p95 por dia (s)</h2>
+  <div class="card rolar"><svg class="gr" viewBox="0 0 240 150" role="img"><rect x="0" y="12.0" width="34" height="120.0" rx="3" fill="#4f7cff"/><text class="val" x="17.0" y="8.0">18.6s</text><text class="eixo" x="17.0" y="146">08-10</text></svg></div>
 
   <h2>Distribuição de latência</h2>
   <div class="card">
-    <div class="hb"><span class="hb-rot">&lt; 2s</span><span class="hb-trilho"><span class="hb-cheio" style="width:0.0%;background:#4f7cff"></span></span><span class="hb-val">0 turnos</span></div><div class="hb"><span class="hb-rot">2–5s</span><span class="hb-trilho"><span class="hb-cheio" style="width:50.0%;background:#22a06b"></span></span><span class="hb-val">2 turnos</span></div><div class="hb"><span class="hb-rot">5–10s</span><span class="hb-trilho"><span class="hb-cheio" style="width:100.0%;background:#e8912d"></span></span><span class="hb-val">4 turnos</span></div><div class="hb"><span class="hb-rot">&gt; 10s</span><span class="hb-trilho"><span class="hb-cheio" style="width:50.0%;background:#c4453f"></span></span><span class="hb-val">2 turnos</span></div>
-    <p class="vazio">p50 6.1s · p95 19.8s ·
+    <div class="hb"><span class="hb-rot">&lt; 2s</span><span class="hb-trilho"><span class="hb-cheio" style="width:0.0%;background:#4f7cff"></span></span><span class="hb-val">0 turnos</span></div><div class="hb"><span class="hb-rot">2–5s</span><span class="hb-trilho"><span class="hb-cheio" style="width:75.0%;background:#22a06b"></span></span><span class="hb-val">3 turnos</span></div><div class="hb"><span class="hb-rot">5–10s</span><span class="hb-trilho"><span class="hb-cheio" style="width:100.0%;background:#e8912d"></span></span><span class="hb-val">4 turnos</span></div><div class="hb"><span class="hb-rot">&gt; 10s</span><span class="hb-trilho"><span class="hb-cheio" style="width:100.0%;background:#c4453f"></span></span><span class="hb-val">4 turnos</span></div>
+    <p class="vazio">p50 6.2s · p95 18.6s ·
        máx 23.1s</p>
   </div>
 
-  <h2>Funil do turno</h2>
-  <div class="card"><div class="hb"><span class="hb-rot">recebeu mensagem</span><span class="hb-trilho"><span class="hb-cheio" style="width:100.0%;background:#4f7cff"></span></span><span class="hb-val">8 turnos</span></div><div class="hb"><span class="hb-rot">roteou</span><span class="hb-trilho"><span class="hb-cheio" style="width:100.0%;background:#22a06b"></span></span><span class="hb-val">8 turnos</span></div><div class="hb"><span class="hb-rot">usou ferramenta</span><span class="hb-trilho"><span class="hb-cheio" style="width:25.0%;background:#e8912d"></span></span><span class="hb-val">2 turnos</span></div><div class="hb"><span class="hb-rot">concluiu o turno</span><span class="hb-trilho"><span class="hb-cheio" style="width:100.0%;background:#c4453f"></span></span><span class="hb-val">8 turnos</span></div><div class="hb"><span class="hb-rot">respondeu no canal</span><span class="hb-trilho"><span class="hb-cheio" style="width:100.0%;background:#8b5cf6"></span></span><span class="hb-val">8 turnos</span></div></div>
-
-  <h2>Para onde o supervisor roteou</h2>
-  <div class="card"><div class="hb"><span class="hb-rot">lembretes</span><span class="hb-trilho"><span class="hb-cheio" style="width:100.0%;background:#4f7cff"></span></span><span class="hb-val">6</span></div><div class="hb"><span class="hb-rot">responder</span><span class="hb-trilho"><span class="hb-cheio" style="width:83.3%;background:#22a06b"></span></span><span class="hb-val">5</span></div></div>
-
   <h2>Custo por nó — rotear vs. executar</h2>
   <div class="card">
-    <div class="hb"><span class="hb-rot">lembretes</span><span class="hb-trilho"><span class="hb-cheio" style="width:100.0%;background:#4f7cff"></span></span><span class="hb-val">0.04217 USD</span></div><div class="hb"><span class="hb-rot">supervisor</span><span class="hb-trilho"><span class="hb-cheio" style="width:27.5%;background:#22a06b"></span></span><span class="hb-val">0.0116 USD</span></div>
+    <div class="hb"><span class="hb-rot">lembretes</span><span class="hb-trilho"><span class="hb-cheio" style="width:100.0%;background:#4f7cff"></span></span><span class="hb-val">0.0634 USD</span></div><div class="hb"><span class="hb-rot">supervisor</span><span class="hb-trilho"><span class="hb-cheio" style="width:23.1%;background:#22a06b"></span></span><span class="hb-val">0.01462 USD</span></div>
     <div class="rolar"><table>
       <tr><th>nó</th><th>modelo</th><th>chamadas</th><th>tokens in</th><th>tokens out</th><th>custo</th></tr>
-      <tr><td>lembretes</td><td>anthropic/claude-sonnet-4.5</td><td class='num'>4</td><td class='num'>11,598</td><td class='num'>492</td><td class='num'>US$ 0.04217</td></tr><tr><td>supervisor</td><td>anthropic/claude-haiku-4.5</td><td class='num'>8</td><td class='num'>9,735</td><td class='num'>373</td><td class='num'>US$ 0.01160</td></tr>
+      <tr><td>lembretes</td><td>anthropic/claude-sonnet-4.5</td><td class='num'>6</td><td class='num'>17,069</td><td class='num'>813</td><td class='num'>US$ 0.06340</td></tr><tr><td>supervisor</td><td>anthropic/claude-haiku-4.5</td><td class='num'>11</td><td class='num'>12,262</td><td class='num'>472</td><td class='num'>US$ 0.01462</td></tr>
     </table></div>
     
   </div>
@@ -86,15 +102,27 @@
   <div class="card">
     <div class="rolar"><table>
       <tr><th>tool</th><th>ok</th><th>erro</th><th>sucesso</th></tr>
-      <tr><td>cancelar_lembrete</td><td class='num'>1</td><td class='num'>0</td><td class='num'>100%</td></tr><tr><td>criar_lembrete</td><td class='num'>2</td><td class='num'>1</td><td class='num'>67%</td></tr><tr><td>listar_lembretes</td><td class='num'>1</td><td class='num'>0</td><td class='num'>100%</td></tr>
+      <tr><td>cancelar_lembrete</td><td class='num'>1</td><td class='num'>0</td><td class='num'>100%</td></tr><tr><td>criar_lembrete</td><td class='num'>3</td><td class='num'>1</td><td class='num'>75%</td></tr><tr><td>listar_lembretes</td><td class='num'>2</td><td class='num'>0</td><td class='num'>100%</td></tr>
     </table></div>
     <h2 style="margin-top:1.5rem">Motivos de falha</h2>
     <div class="hb"><span class="hb-rot">data_nao_entendida</span><span class="hb-trilho"><span class="hb-cheio" style="width:100.0%;background:#4f7cff"></span></span><span class="hb-val">1</span></div>
   </div>
 
-  <h2>Lembretes e saúde</h2>
+  <h2>Saúde</h2>
   <div class="card">
-    <div class="hb"><span class="hb-rot">lembretes criados</span><span class="hb-trilho"><span class="hb-cheio" style="width:100.0%;background:#4f7cff"></span></span><span class="hb-val">3</span></div><div class="hb"><span class="hb-rot">lembretes disparados</span><span class="hb-trilho"><span class="hb-cheio" style="width:0.0%;background:#22a06b"></span></span><span class="hb-val">0</span></div><div class="hb"><span class="hb-rot">erros no grafo</span><span class="hb-trilho"><span class="hb-cheio" style="width:0.0%;background:#e8912d"></span></span><span class="hb-val">0</span></div><div class="hb"><span class="hb-rot">falhas de parse do roteador</span><span class="hb-trilho"><span class="hb-cheio" style="width:0.0%;background:#c4453f"></span></span><span class="hb-val">0</span></div><div class="hb"><span class="hb-rot">mensagens de desconhecidos</span><span class="hb-trilho"><span class="hb-cheio" style="width:33.3%;background:#8b5cf6"></span></span><span class="hb-val">1</span></div>
+    <div class="hb"><span class="hb-rot">erros no grafo</span><span class="hb-trilho"><span class="hb-cheio" style="width:0.0%;background:#4f7cff"></span></span><span class="hb-val">0</span></div><div class="hb"><span class="hb-rot">falhas de parse do roteador</span><span class="hb-trilho"><span class="hb-cheio" style="width:0.0%;background:#22a06b"></span></span><span class="hb-val">0</span></div><div class="hb"><span class="hb-rot">mensagens de desconhecidos</span><span class="hb-trilho"><span class="hb-cheio" style="width:100.0%;background:#e8912d"></span></span><span class="hb-val">1</span></div>
+    <p class="vazio">Para investigar UMA conversa específica (o replay passo a passo),
+       use os traces no Langfuse — este painel mostra o agregado.</p>
+  </div>
+
+  <h1 class="secao">🧪 Evaluation <span class="secao-sub">a qualidade, medida</span></h1>
+  <div class="card">
+    <div class="rolar"><table>
+      <tr><th>eval</th><th>último resultado</th><th>trajetória</th><th>quando</th><th>commit</th><th>detalhe</th></tr>
+      <tr><td>datas_ptbr</td><td class='num'>24/24 (100%)</td><td><svg width="120" height="26" viewBox="0 0 120 26"><rect x="0" y="4.0" width="12" height="22.0" rx="2" fill="#22a06b"/><rect x="15" y="4.0" width="12" height="22.0" rx="2" fill="#22a06b"/><rect x="30" y="4.0" width="12" height="22.0" rx="2" fill="#22a06b"/><rect x="45" y="4.0" width="12" height="22.0" rx="2" fill="#22a06b"/><rect x="60" y="4.0" width="12" height="22.0" rx="2" fill="#22a06b"/><rect x="75" y="4.0" width="12" height="22.0" rx="2" fill="#22a06b"/><rect x="90" y="4.9" width="12" height="21.1" rx="2" fill="#22a06b"/><rect x="105" y="4.0" width="12" height="22.0" rx="2" fill="#22a06b"/></svg></td><td>2026-08-11 13:27</td><td><code>654ee88</code></td><td class='detalhe'>resolver_data determinístico</td></tr><tr><td>qualidade_resposta</td><td class='num'>14/14 (100%)</td><td><svg width="60" height="26" viewBox="0 0 60 26"><rect x="0" y="5.8" width="12" height="20.2" rx="2" fill="#22a06b"/><rect x="15" y="4.0" width="12" height="22.0" rx="2" fill="#22a06b"/><rect x="30" y="5.8" width="12" height="20.2" rx="2" fill="#22a06b"/><rect x="45" y="4.0" width="12" height="22.0" rx="2" fill="#22a06b"/></svg></td><td>2026-08-10 21:35</td><td><code>9fd4124</code></td><td class='detalhe'>agente=anthropic/claude-sonnet-4.5 juiz=google/gemini-2.5-fl</td></tr><tr><td>roteamento</td><td class='num'>21/22 (95%)</td><td><svg width="45" height="26" viewBox="0 0 45 26"><rect x="0" y="5.4" width="12" height="20.6" rx="2" fill="#22a06b"/><rect x="15" y="5.1" width="12" height="20.9" rx="2" fill="#22a06b"/><rect x="30" y="5.0" width="12" height="21.0" rx="2" fill="#22a06b"/></svg></td><td>2026-08-11 12:58</td><td><code>b897f67</code></td><td class='detalhe'>anthropic/claude-haiku-4.5</td></tr>
+    </table></div>
+    <p class="vazio">Fonte: evals/results/history.csv (runs salvos com --salvar).
+       Cada barra da trajetória é um run; verde ≥ 90%, laranja ≥ 70%, vermelho abaixo.</p>
   </div>
 
   <p class="rodape">
