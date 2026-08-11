@@ -54,6 +54,7 @@ class Settings(BaseSettings):
     # Comportamento
     tz_familia: str = "America/Sao_Paulo"
     debounce_segundos: float = 1.5
+    briefing_hora: str = "07:30"  # briefing matinal proativo; vazio desliga
 
     @property
     def checkpointer_conn_string(self) -> str:

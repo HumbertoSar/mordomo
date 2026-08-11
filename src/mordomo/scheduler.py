@@ -31,13 +31,24 @@ def iniciar() -> AsyncIOScheduler:
 
 
 async def _disparar(reminder_id: int) -> None:
+    from .tools.recorrencia import desserializar, proxima_ocorrencia
+
+    proxima_utc = None
     async with Sessao() as s:
         lembrete = await s.get(Reminder, reminder_id)
         if lembrete is None or lembrete.status != "pendente":
             return
         ok = await notificar(lembrete.member_id, f"⏰ Lembrete: {lembrete.texto}")
-        lembrete.status = "enviado" if ok else "falhou"
+        if lembrete.recorrencia:
+            # Recorrente dispara e REAGENDA — nunca vira "enviado". Mesmo com a
+            # notificação falhando, avança: repetir o passado não ajuda ninguém.
+            proxima_utc = proxima_ocorrencia(desserializar(lembrete.recorrencia)).astimezone(UTC)
+            lembrete.quando_utc = proxima_utc
+        else:
+            lembrete.status = "enviado" if ok else "falhou"
         await s.commit()
+    if proxima_utc is not None:
+        agendar(reminder_id, proxima_utc)
     # Sem turn_id: disparo proativo não nasce de uma pergunta. Mas com session_id,
     # para caber na conversa do dia daquele membro.
     await emitir(
@@ -46,6 +57,7 @@ async def _disparar(reminder_id: int) -> None:
         session_id_de(lembrete.member_id),
         texto=lembrete.texto,
         ok=ok,
+        recorrente=bool(lembrete.recorrencia),
     )
 
 
@@ -66,6 +78,21 @@ def cancelar_job(reminder_id: int) -> None:
         iniciar().remove_job(f"lembrete-{reminder_id}")
     except Exception:  # noqa: BLE001
         log.debug("Job do lembrete %s já não existia (provável disparo prévio)", reminder_id)
+
+
+def agendar_briefing() -> None:
+    """Job diário do briefing matinal (BRIEFING_HORA vazio = desligado)."""
+    if not settings.briefing_hora:
+        log.info("Briefing matinal desligado (BRIEFING_HORA vazio)")
+        return
+    from .briefing import enviar_briefings
+
+    hh, mm = (int(x) for x in settings.briefing_hora.split(":"))
+    iniciar().add_job(
+        enviar_briefings, "cron", hour=hh, minute=mm,
+        id="briefing-matinal", replace_existing=True, misfire_grace_time=3600,
+    )
+    log.info("Briefing matinal agendado para %s", settings.briefing_hora)
 
 
 async def carregar_pendentes() -> int:

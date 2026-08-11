@@ -54,6 +54,10 @@ class Reminder(Base):
     texto: Mapped[str] = mapped_column(String(500))
     quando_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     status: Mapped[str] = mapped_column(String(20), default="pendente")  # pendente|enviado|cancelado
+    # Regra serializada ("diaria:@08:00", "semanal:0@07:30", "mensal:5@09:00").
+    # None = lembrete único. Recorrente dispara e REAGENDA (quando_utc avança);
+    # só sai de "pendente" quando cancelado.
+    recorrencia: Mapped[str | None] = mapped_column(String(40), nullable=True)
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=agora_utc)
 
 

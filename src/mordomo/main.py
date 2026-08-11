@@ -54,6 +54,7 @@ async def main() -> None:
         scheduler.iniciar()
         adapter = TelegramAdapter(grafo)  # registra-se no notify antes do scheduler disparar
         await scheduler.carregar_pendentes()
+        scheduler.agendar_briefing()
 
         log.info("🤵 Mordomo a postos.")
         await adapter.start()

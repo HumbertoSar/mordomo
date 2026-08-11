@@ -23,6 +23,7 @@ from ..analytics import emitir_de
 from ..config import settings
 from ..db.models import Reminder
 from ..db.session import Sessao
+from . import recorrencia
 from .datas import resolver_data
 
 
@@ -42,6 +43,38 @@ async def criar_lembrete(texto: str, quando: str, config: RunnableConfig) -> str
     """
     member_id = config["configurable"]["member_id"]
     await emitir_de(config, "tool_called", tool="criar_lembrete", quando=quando)
+
+    # Recorrência primeiro: "todo dia 5 às 9h" não é uma data, é uma regra.
+    if (regra := recorrencia.interpretar(quando)) is not None:
+        if regra.hora is None:
+            await emitir_de(
+                config, "tool_result", tool="criar_lembrete", ok=False, motivo="recorrencia_sem_hora"
+            )
+            return (
+                f"Entendi a recorrência ({regra.humana()}), mas FALTA A HORA. "
+                "Pergunte ao usuário que horas o lembrete deve tocar."
+            )
+        dt = recorrencia.proxima_ocorrencia(regra)
+        async with Sessao() as s:
+            lembrete = Reminder(
+                member_id=member_id,
+                texto=texto,
+                quando_utc=dt.astimezone(UTC),
+                recorrencia=recorrencia.serializar(regra),
+            )
+            s.add(lembrete)
+            await s.commit()
+            await s.refresh(lembrete)
+        scheduler.agendar(lembrete.id, lembrete.quando_utc)
+        await emitir_de(config, "tool_result", tool="criar_lembrete", ok=True, recorrente=True)
+        await emitir_de(
+            config, "reminder_created", reminder_id=lembrete.id, recorrencia=regra.humana()
+        )
+        return (
+            f"Lembrete recorrente #{lembrete.id} criado ({regra.humana()}): {texto}. "
+            f"Próximo toque: {_fmt(dt)}."
+        )
+
     dt = resolver_data(quando)
     if dt is None:
         await emitir_de(
@@ -82,7 +115,14 @@ async def listar_lembretes(config: RunnableConfig) -> str:
     await emitir_de(config, "tool_result", tool="listar_lembretes", ok=True, n=len(pendentes))
     if not pendentes:
         return "Nenhum lembrete pendente."
-    return "\n".join(f"#{r.id} — {_fmt(r.quando_utc)}: {r.texto}" for r in pendentes)
+
+    def _linha(r: Reminder) -> str:
+        base = f"#{r.id} — {_fmt(r.quando_utc)}: {r.texto}"
+        if r.recorrencia:
+            base += f" (🔁 {recorrencia.desserializar(r.recorrencia).humana()})"
+        return base
+
+    return "\n".join(_linha(r) for r in pendentes)
 
 
 @tool
