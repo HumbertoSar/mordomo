@@ -10,6 +10,10 @@ async def test_gerar_html_monta_as_tres_secoes():
     assert "Evaluation" in html
     # autocontido: nada de CDN/script externo
     assert "<script" not in html and "cdn" not in html.lower()
+    # o arquivo abre DIRETO do Telegram, sem <head> de ninguém: charset e
+    # viewport são obrigatórios (sem eles: mojibake no Safari + zoom-out no celular)
+    assert html.startswith('<meta charset="utf-8">')
+    assert 'name="viewport"' in html
 
 
 def test_serie_evals_le_o_historico_versionado():

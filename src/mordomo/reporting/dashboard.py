@@ -39,7 +39,12 @@ def _barras_verticais(dados: dict[str, float], unidade: str = "") -> str:
             f'<text class="val" x="{x + larg_barra / 2}" y="{y - 4:.1f}">{valor:g}{unidade}</text>'
             f'<text class="eixo" x="{x + larg_barra / 2}" y="{altura - 4}">{html.escape(rotulo[-5:])}</text>'
         )
-    return f'<svg class="gr" viewBox="0 0 {largura} {altura}" role="img">{"".join(partes)}</svg>'
+    # min-width: gráfico largo ROLA dentro de .rolar em vez de comprimir as
+    # barras até sumirem no celular
+    return (
+        f'<svg class="gr" style="min-width:{largura}px" '
+        f'viewBox="0 0 {largura} {altura}" role="img">{"".join(partes)}</svg>'
+    )
 
 
 def _barras_horizontais(itens: list[tuple[str, float]], sufixo: str = "") -> str:
@@ -214,7 +219,12 @@ def montar_html(d: dict) -> str:
     ) or "<tr><td colspan='6' class='vazio'>Nenhum run salvo — rode make evals com --salvar.</td></tr>"
 
     s = d["saude"]
-    return f"""<title>Mordomo — gestão à vista</title>
+    # charset: sem ele o Safari chuta latin-1 e quebra acento/emoji (visto no
+    # iPhone do Humberto). viewport: sem ele o celular renderiza a 980px e dá
+    # zoom-out — o arquivo é aberto DIRETO do Telegram, sem <head> de ninguém.
+    return f"""<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mordomo — gestão à vista</title>
 <style>
   :root {{
     --fundo:#ffffff; --texto:#1a1d21; --suave:#6b7280; --linha:#e5e7eb; --cartao:#f8fafc;
@@ -268,6 +278,16 @@ def montar_html(d: dict) -> str:
   .rodape {{ margin-top:3rem; padding-top:1rem; border-top:1px solid var(--linha);
              color:var(--suave); font-size:.8rem; }}
   code {{ background:var(--linha); padding:.1rem .3rem; border-radius:4px; font-size:.85em; }}
+  @media (max-width: 520px) {{
+    body {{ padding:1rem .75rem 3rem; }}
+    h1 {{ font-size:1.2rem; }}
+    h1.secao {{ font-size:1.05rem; margin-top:2.5rem; }}
+    .kpis {{ grid-template-columns:repeat(2, 1fr); gap:.5rem; }}
+    .kpi-val {{ font-size:1.15rem; }}
+    .hb {{ grid-template-columns:minmax(64px, 100px) 1fr auto; font-size:.78rem; }}
+    .card {{ padding:.75rem .8rem; }}
+    table {{ font-size:.78rem; }}
+  }}
 </style>
 <div class="wrap">
   <h1>🤵 Mordomo da Família — gestão à vista</h1>
