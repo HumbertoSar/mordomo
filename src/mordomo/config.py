@@ -59,6 +59,7 @@ class Settings(BaseSettings):
     tz_familia: str = "America/Sao_Paulo"
     debounce_segundos: float = 1.5
     briefing_hora: str = "07:30"  # briefing matinal proativo; vazio desliga
+    curadoria_hora: str = "18:30"  # curadoria de evals aos domingos; vazio desliga
 
     @property
     def checkpointer_conn_string(self) -> str:

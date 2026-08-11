@@ -132,6 +132,22 @@ class TelegramAdapter:
             )
             await emitir("dashboard_sent", membro.id, session_id_de(membro.id))
 
+        @self.dp.message(Command("curadoria"))
+        async def curadoria_cmd(msg: Message) -> None:
+            membro = await resolver_membro("telegram", str(msg.from_user.id))
+            if membro is None or membro.papel != "adulto":
+                await msg.answer("A curadoria é coisa de adulto por aqui. 😉")
+                return
+            from ..curadoria import rodar_curadoria
+
+            await self.bot.send_chat_action(msg.chat.id, "typing")
+            achados = await rodar_curadoria()
+            n = len(achados["expressoes_de_data_falhas"])
+            await msg.answer(
+                f"Curadoria rodada! {n} caso(s) de eval proposto(s)"
+                + (" — issue aberta no GitHub." if n else " — semana limpa. ✨")
+            )
+
         @self.dp.message(Command("convidar"))
         async def convidar(msg: Message, command: CommandObject) -> None:
             membro = await resolver_membro("telegram", str(msg.from_user.id))

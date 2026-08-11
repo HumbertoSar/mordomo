@@ -21,6 +21,7 @@ log = logging.getLogger(__name__)
 _CATEGORIAS = {
     "funcionalidade": ("[família]", "pedido-da-familia", "Pedido"),
     "problema": ("[problema]", "problema-reportado", "Problema relatado"),
+    "curadoria": ("[curadoria]", "curadoria-evals", "Proposta"),
 }
 
 

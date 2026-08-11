@@ -95,6 +95,21 @@ def agendar_briefing() -> None:
     log.info("Briefing matinal agendado para %s", settings.briefing_hora)
 
 
+def agendar_curadoria() -> None:
+    """Curadoria semanal de evals — domingo, CURADORIA_HORA (vazio = desligada)."""
+    if not settings.curadoria_hora:
+        log.info("Curadoria semanal desligada (CURADORIA_HORA vazio)")
+        return
+    from .curadoria import rodar_curadoria
+
+    hh, mm = (int(x) for x in settings.curadoria_hora.split(":"))
+    iniciar().add_job(
+        rodar_curadoria, "cron", day_of_week="sun", hour=hh, minute=mm,
+        id="curadoria-semanal", replace_existing=True, misfire_grace_time=7200,
+    )
+    log.info("Curadoria semanal agendada: domingos às %s", settings.curadoria_hora)
+
+
 async def carregar_pendentes() -> int:
     """No boot: agenda os futuros e dispara os que venceram enquanto estava fora."""
     agora = datetime.now(UTC)
