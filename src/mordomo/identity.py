@@ -1,8 +1,8 @@
 """Resolução de identidade: (canal, external_id) → Member.
 
-MVP: família pré-cadastrada via scripts/seed_familia.py; desconhecidos recebem
-recusa educada (também é o guardrail de acesso). Fase 2: fluxo /vincular com
-código de convite."""
+Desconhecidos recebem recusa educada (também é o guardrail de acesso).
+Onboarding: /convidar gera código, /vincular consome (convites.py); o seed
+script segue disponível para o primeiro membro."""
 
 from sqlalchemy import select
 

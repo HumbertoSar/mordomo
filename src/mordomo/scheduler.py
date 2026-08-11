@@ -55,7 +55,9 @@ async def _disparar(reminder_id: int) -> None:
         "reminder_fired",
         lembrete.member_id,
         session_id_de(lembrete.member_id),
-        texto=lembrete.texto,
+        # ADR-005: o payload leva id, nunca o texto — "consulta do psiquiatra
+        # do Davi" não pode morar em product_events (nem nos backups dele).
+        reminder_id=lembrete.id,
         ok=ok,
         recorrente=bool(lembrete.recorrencia),
     )

@@ -7,7 +7,7 @@ Responsabilidades do adapter (e SÓ dele — ADR-001):
   - renderização: OutboundMessage semântica → widgets do Telegram
     (inline keyboard) com degradação via plan_rendering()
   - proatividade: notificar() → send_message direto (Telegram é livre)
-  - áudio: fase 2 (transcrição via Whisper/Groq) — hoje recusa simpática
+  - áudio: transcrição via Whisper/Groq (sem GROQ_API_KEY = recusa simpática)
 """
 
 import asyncio
@@ -316,8 +316,30 @@ class TelegramAdapter:
         @self.dp.callback_query()
         async def callback(cb: CallbackQuery) -> None:
             await cb.answer()
-            # Resposta de botão entra no MESMO pipeline, como texto (o id da opção)
-            await self._receber(cb.message.chat.id, cb.from_user.id, cb.data or "", f"cb-{cb.id}")
+            if cb.message is None:  # mensagem antiga/inacessível: sem chat para responder
+                return
+            # Resposta de botão entra no MESMO pipeline, como texto (o id da
+            # opção). em_grupo importa: botão apertado no grupo pertence à
+            # thread do grupo, não à privada do membro (ADR-008).
+            await self._receber(
+                cb.message.chat.id,
+                cb.from_user.id,
+                cb.data or "",
+                f"cb-{cb.id}",
+                em_grupo=cb.message.chat.type != "private",
+            )
+
+        @self.dp.message()
+        async def nao_suportado(msg: Message) -> None:
+            # Catch-all (registrado por último): sticker, vídeo, localização…
+            # No privado, silêncio parece bot travado — recusa simpática, como
+            # o áudio sem chave. No grupo, o mordomo não se intromete.
+            if msg.chat.type != "private":
+                return
+            await msg.answer(
+                "Esse tipo de mensagem eu ainda não sei ler. 🙏 "
+                "Me escreva ou mande um áudio."
+            )
 
     # ── Debounce + pipeline ──────────────────────────────────────────────
 
@@ -422,14 +444,17 @@ class TelegramAdapter:
                 if doc is None:
                     log.warning("Anexo %s sumiu do banco", anexo.documento_id)
                     continue
-                try:
-                    if doc.telegram_file_id:
+                enviado = None
+                if doc.telegram_file_id:
+                    try:
                         enviado = await self._enviar_midia(chat_id, doc.telegram_file_id, doc)
-                    else:
-                        raise TelegramBadRequest(method=None, message="sem file_id")
-                except TelegramBadRequest:
-                    # file_id inválido/expirado → sobe os bytes e re-cacheia
-                    arquivo = BufferedInputFile(doc.dados, filename=f"{doc.nome}.jpg")
+                    except TelegramBadRequest:
+                        enviado = None  # file_id inválido/expirado → cai no upload
+                if enviado is None:
+                    # Sobe os bytes e re-cacheia. Extensão segue o mime: um PDF
+                    # reenviado chegava como "comprovante.jpg".
+                    ext = ".jpg" if doc.mime.startswith("image/") else ""
+                    arquivo = BufferedInputFile(doc.dados, filename=f"{doc.nome}{ext}")
                     enviado = await self._enviar_midia(chat_id, arquivo, doc)
                 if enviado is not None:
                     novo_id = (enviado.photo[-1].file_id if enviado.photo
