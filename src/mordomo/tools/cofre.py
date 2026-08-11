@@ -25,6 +25,12 @@ def _visiveis(member_id: int):
 _STOPWORDS = {"de", "do", "da", "dos", "das", "e", "o", "a", "os", "as", "meu", "minha"}
 
 
+def _sem_curingas(termo: str) -> str:
+    """Escapa %/_ vindos do usuário: "100%" ou "meu_wifi" são texto literal,
+    não curinga de LIKE (um % solto casaria o cofre inteiro)."""
+    return termo.replace("\\", "\\\\").replace("%", r"\%").replace("_", r"\_")
+
+
 def _por_palavras(coluna, termo: str):
     """Busca por PALAVRAS, não por substring: "carteirinha de saúde do Davi"
     tem que achar "Carteirinha do Plano de Saúde Davi" (caso real, 11/08 — o
@@ -32,8 +38,8 @@ def _por_palavras(coluna, termo: str):
     Cada palavra significativa vira um ILIKE; o AND exige todas, em qualquer ordem."""
     palavras = [p for p in termo.strip().split() if p.lower() not in _STOPWORDS]
     if not palavras:
-        return coluna.ilike(f"%{termo.strip()}%")
-    return and_(*[coluna.ilike(f"%{p}%") for p in palavras])
+        return coluna.ilike(f"%{_sem_curingas(termo.strip())}%", escape="\\")
+    return and_(*[coluna.ilike(f"%{_sem_curingas(p)}%", escape="\\") for p in palavras])
 
 
 @tool
@@ -52,9 +58,13 @@ async def guardar_info(chave: str, valor: str, config: RunnableConfig, so_para_m
     registrar_segredo(valor)
     async with Sessao() as s:
         res = await s.execute(
-            select(VaultItem).where(VaultItem.chave.ilike(chave), VaultItem.dono == member_id)
+            select(VaultItem)
+            .where(VaultItem.chave.ilike(_sem_curingas(chave), escape="\\"),
+                   VaultItem.dono == member_id)
+            .order_by(VaultItem.id)
+            .limit(1)
         )
-        item = res.scalar_one_or_none()
+        item = res.scalars().first()
         if item is not None:
             item.valor = valor
             item.compartilhado = not so_para_mim
@@ -117,17 +127,33 @@ async def apagar_info(chave: str, config: RunnableConfig) -> str:
     member_id, papel = cfg["member_id"], cfg.get("member_papel", "adulto")
     await emitir_de(config, "tool_called", tool="apagar_info", chave=chave)
     async with Sessao() as s:
-        res = await s.execute(select(VaultItem).where(VaultItem.chave.ilike(chave.strip())))
-        item = res.scalar_one_or_none()
-        if item is None:
+        res = await s.execute(
+            select(VaultItem)
+            .where(VaultItem.chave.ilike(_sem_curingas(chave.strip()), escape="\\"))
+            .order_by(VaultItem.id)
+        )
+        itens = list(res.scalars())
+        if papel != "adulto":
+            # Criança só ENXERGA os próprios itens aqui: a resposta "não achei"
+            # para item alheio evita o oráculo de existência ("senha do cartão
+            # existe, peça a um adulto").
+            itens = [i for i in itens if i.dono == member_id]
+        if not itens:
             await emitir_de(config, "tool_result", tool="apagar_info", ok=False, motivo="nao_achou")
             return f"Não achei '{chave}' no cofre."
-        if item.dono != member_id and papel != "adulto":
-            await emitir_de(config, "tool_result", tool="apagar_info", ok=False, motivo="sem_permissao")
-            return "Esse item não é seu — peça a um adulto para apagar."
-        await s.delete(item)
+        # Duas pessoas podem ter a MESMA chave ("CEP de casa"): o próprio item
+        # tem prioridade; adulto só apaga o alheio quando não há ambiguidade.
+        proprio = next((i for i in itens if i.dono == member_id), None)
+        alvo = proprio or (itens[0] if len(itens) == 1 else None)
+        if alvo is None:
+            await emitir_de(config, "tool_result", tool="apagar_info", ok=False, motivo="ambiguo")
+            return (
+                f"Há mais de um item chamado '{chave}' (de pessoas diferentes). "
+                "Peça ao dono para apagar o dele."
+            )
+        await s.delete(alvo)
         await s.commit()
-    await emitir_de(config, "tool_result", tool="apagar_info", ok=True)
+    await emitir_de(config, "tool_result", tool="apagar_info", ok=True, item_id=alvo.id)
     return f"'{chave}' apagado do cofre."
 
 

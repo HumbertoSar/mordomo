@@ -75,16 +75,57 @@ async def test_listar_mostra_chaves_mas_nunca_valores():
     assert "RG da Ana" in r and "12.345.678-9" not in r
 
 
-async def test_crianca_nao_apaga_item_alheio():
+async def test_crianca_nao_apaga_nem_descobre_item_alheio():
+    """Oráculo fechado: para a criança, item alheio "não existe" — a resposta
+    não pode confirmar que "cartao do plano" está no cofre."""
     adulto = await _membro("CofreAdultoDono")
     crianca = await _membro("CofreCrianca", papel="crianca")
     await guardar_info.ainvoke(
         {"chave": "cartao do plano", "valor": "987654321000"}, _cfg(adulto, "t-c9")
     )
     r = await apagar_info.ainvoke({"chave": "cartao do plano"}, _cfg(crianca, "t-c10"))
-    assert "adulto" in r.lower()
+    assert "não achei" in r.lower()
     r = await apagar_info.ainvoke({"chave": "cartao do plano"}, _cfg(adulto, "t-c11"))
     assert "apagado" in r
+
+
+async def test_apagar_chave_repetida_prefere_o_proprio_e_avisa_ambiguidade():
+    """Duas pessoas com a MESMA chave: apagar o seu não pode nem estourar
+    (MultipleResultsFound de antes) nem apagar o do outro por engano."""
+    ana = await _membro("CofreAna")
+    beto = await _membro("CofreBeto")
+    carla = await _membro("CofreCarla")
+    await guardar_info.ainvoke({"chave": "cep do trabalho", "valor": "11111-111"}, _cfg(ana, "t-c15"))
+    await guardar_info.ainvoke({"chave": "cep do trabalho", "valor": "22222-222"}, _cfg(beto, "t-c16"))
+
+    # Dona apaga o SEU; o do Beto sobrevive
+    r = await apagar_info.ainvoke({"chave": "cep do trabalho"}, _cfg(ana, "t-c17"))
+    assert "apagado" in r
+    async with Sessao() as s:
+        res = await s.execute(select(VaultItem).where(VaultItem.chave == "cep do trabalho"))
+        restantes = list(res.scalars())
+    assert len(restantes) == 1 and restantes[0].dono == beto.id
+
+    # Recria o da Ana; Carla (sem item próprio) encontra DOIS → ambiguidade
+    await guardar_info.ainvoke({"chave": "cep do trabalho", "valor": "11111-111"}, _cfg(ana, "t-c18"))
+    r = await apagar_info.ainvoke({"chave": "cep do trabalho"}, _cfg(carla, "t-c19"))
+    assert "mais de um" in r.lower()
+
+
+async def test_curinga_do_usuario_nao_vira_wildcard():
+    """"%" literal não pode casar o cofre inteiro (nem no buscar, nem no apagar)."""
+    m = await _membro("CofreCuringa")
+    await guardar_info.ainvoke({"chave": "meta de poupança", "valor": "20%"}, _cfg(m, "t-c20"))
+    await guardar_info.ainvoke({"chave": "pin do cadeado", "valor": "4321"}, _cfg(m, "t-c21"))
+
+    r = await buscar_info.ainvoke({"termo": "%"}, _cfg(m, "t-c22"))
+    assert "4321" not in r  # "%" não é curinga: só acharia chave com % literal
+
+    r = await apagar_info.ainvoke({"chave": "%"}, _cfg(m, "t-c23"))
+    assert "não achei" in r.lower()  # e não apaga nada por engano
+    async with Sessao() as s:
+        res = await s.execute(select(VaultItem).where(VaultItem.dono == m.id))
+        assert len(list(res.scalars())) == 2
 
 
 async def test_valores_sao_registrados_e_mascarados():
