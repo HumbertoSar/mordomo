@@ -34,7 +34,66 @@ def test_config_de_grupo_troca_thread_e_sessao():
     assert c["thread_id"] == "grupo-777"
     assert c["session_id"] == session_de_grupo("777")
     assert c["member_id"] == 4  # a identidade continua individual (ADR-003)
+    assert c["grupo_id"] == "777"  # nós leem daqui que a conversa é coletiva
     assert cfg["metadata"]["langfuse_session_id"] == c["session_id"]
+
+
+async def test_cofre_recusa_grupo_antes_do_llm():
+    """Segurança, não prompt: em grupo o no_cofre devolve recusa SEM invocar o
+    agente (senão o valor/documento sairia para todos no chat)."""
+    from sqlalchemy import select
+
+    from mordomo.agents import cofre as agente_cofre
+    from mordomo.db.models import ProductEvent
+    from mordomo.db.session import Sessao
+
+    # Sentinela: se o guard falhar e o nó tentar criar/invocar o agente real,
+    # o teste quebra aqui — não em rede (regra nº 7).
+    original = agente_cofre._agente
+
+    class _Explode:
+        async def ainvoke(self, *a, **k):
+            raise AssertionError("cofre invocou o LLM numa conversa de grupo")
+
+    agente_cofre._agente = _Explode()
+    try:
+        cfg = {"configurable": {"member_id": 4, "session_id": "g777:t",
+                                "turn_id": "t-cofre-grupo", "grupo_id": "777"}}
+        resultado = await agente_cofre.no_cofre({"messages": []}, cfg)
+        assert "privado" in resultado["messages"][-1].content
+    finally:
+        agente_cofre._agente = original
+
+    async with Sessao() as s:
+        res = await s.execute(
+            select(ProductEvent).where(ProductEvent.turn_id == "t-cofre-grupo")
+        )
+        tipos = [e.tipo for e in res.scalars()]
+    assert "cofre_recusado_grupo" in tipos
+
+
+async def test_cofre_atende_normalmente_no_privado():
+    """Sem grupo_id o guard não pode disparar — o nó segue para o agente."""
+    from mordomo.agents import cofre as agente_cofre
+
+    class _AgenteFake:
+        async def ainvoke(self, entrada, config):
+            from langchain_core.messages import AIMessage
+
+            return {"messages": [*entrada["messages"], AIMessage("do cofre: 04538-132")]}
+
+    original = agente_cofre._agente
+    agente_cofre._agente = _AgenteFake()
+    try:
+        from langchain_core.messages import HumanMessage
+
+        cfg = {"configurable": {"member_id": 4, "session_id": "4:t", "turn_id": "t-cofre-priv"}}
+        resultado = await agente_cofre.no_cofre(
+            {"messages": [HumanMessage("qual o CEP de casa?")]}, cfg
+        )
+        assert "04538-132" in resultado["messages"][-1].content
+    finally:
+        agente_cofre._agente = original
 
 
 def test_config_privada_continua_por_membro():

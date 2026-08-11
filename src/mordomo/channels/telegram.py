@@ -168,6 +168,11 @@ class TelegramAdapter:
 
         @self.dp.message(Command("convidar"))
         async def convidar(msg: Message, command: CommandObject) -> None:
+            if msg.chat.type != "private":
+                # O código é o ÚNICO segredo do onboarding — digitado no grupo,
+                # qualquer presente (até não-membro) se vincula antes do convidado.
+                await msg.answer("Convite é assunto de privado — me chame lá. 🤫")
+                return
             membro = await resolver_membro("telegram", str(msg.from_user.id))
             if membro is None:
                 await msg.answer("Ainda não nos conhecemos — convites são só para a família. 🤝")
@@ -194,6 +199,9 @@ class TelegramAdapter:
 
         @self.dp.message(Command("vincular"))
         async def vincular(msg: Message, command: CommandObject) -> None:
+            if msg.chat.type != "private":
+                await msg.answer("Vinculação é assunto de privado — me chame lá. 🤫")
+                return
             codigo = (command.args or "").strip()
             if not codigo:
                 await msg.answer("Uso: /vincular CÓDIGO (peça o código a quem administra o mordomo).")

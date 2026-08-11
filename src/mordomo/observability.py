@@ -107,6 +107,9 @@ def config_invocacao(
             "member_papel": member_papel,
             "session_id": session_id,
             "turn_id": turn_id,
+            # Nós que precisam saber que a conversa é COLETIVA (ex.: o cofre
+            # recusa responder em grupo) leem daqui — nunca do texto do LLM.
+            "grupo_id": grupo_id,
         },
         "callbacks": langfuse_callbacks(),
         "metadata": {

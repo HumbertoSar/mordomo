@@ -1,6 +1,8 @@
 """Subagente Cofre — informações da família (CEP, documentos, dados de uso
 recorrente). O dado mais sensível do sistema: ver ADR-005 e tools/cofre.py."""
 
+from langchain_core.messages import AIMessage
+
 from ..analytics import emitir_de, uso_de
 from ..config import settings
 from ..core.contexto import janela
@@ -37,6 +39,14 @@ def agente_cofre():
 
 
 async def no_cofre(state: EstadoMordomo, config) -> dict:
+    # Cofre NUNCA responde em grupo (ADR-008): a resposta iria para todos no
+    # chat — inclusive não-membros que estejam lá — com valor ou documento.
+    # Guard determinístico ANTES do LLM: prompt não é barreira de segurança.
+    if config.get("configurable", {}).get("grupo_id"):
+        await emitir_de(config, "cofre_recusado_grupo")
+        return {"messages": [AIMessage(
+            "Assunto de cofre é só no privado — me chame lá que eu te atendo. 🤫"
+        )]}
     # Janela (ADR-007) — ver nota em agents/lembretes.py.
     entrada = janela(state["messages"])
     anteriores = len(entrada)
