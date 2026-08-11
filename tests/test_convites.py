@@ -1,5 +1,8 @@
-"""Convites (/convidar → /vincular): permissão por papel, uso único, validade."""
+"""Convites (/convidar → /vincular): permissão por papel, uso único, validade
+e as corridas do mundo real (aiogram processa updates em paralelo)."""
 
+import asyncio
+import uuid
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
@@ -87,3 +90,49 @@ async def test_ja_cadastrado_nao_queima_o_codigo():
     async with Sessao() as s:
         res = await s.execute(select(InviteCode).where(InviteCode.codigo == codigo2))
         assert res.scalar_one().usado_por is None  # código segue disponível
+
+
+async def test_corrida_mesmo_codigo_so_um_vincula():
+    """Código vazou para duas pessoas: exatamente UMA entra; o membro criado
+    pelo perdedor não pode sobrar no banco (rollback do claim atômico).
+
+    Ids únicos por execução: o SQLite de teste pode sobreviver entre rodadas
+    (OneDrive segura o arquivo no Windows) e external_id fixo colidiria."""
+    sufixo = uuid.uuid4().hex[:8]
+    admin = await _membro(f"AdminCorrida-{sufixo}", "adulto")
+    codigo = await criar_convite(admin, f"Gemeo-{sufixo}", "adulto")
+
+    r1, r2 = await asyncio.gather(
+        usar_convite(codigo, "telegram", f"corrida-a-{sufixo}"),
+        usar_convite(codigo, "telegram", f"corrida-b-{sufixo}"),
+    )
+    motivos = sorted([r1[1], r2[1]])
+    assert motivos.count("ok") == 1  # exatamente um vencedor
+    assert motivos[0] == "ja_usado"
+
+    async with Sessao() as s:
+        res = await s.execute(select(Member).where(Member.nome == f"Gemeo-{sufixo}"))
+        assert len(list(res.scalars())) == 1  # zero membro-fantasma
+
+
+async def test_toque_duplo_da_mesma_pessoa_nao_estoura_nem_duplica():
+    """A mesma pessoa manda /vincular duas vezes ao mesmo tempo. O contrato
+    duro: nenhuma exceção vaza (IntegrityError vira resposta), só UM membro é
+    criado e exatamente uma chamada devolve "ok". O motivo do perdedor varia
+    com o timing do commit do vencedor (ja_cadastrado ou ja_usado) — ambos
+    são recusas educadas; não fixamos qual."""
+    sufixo = uuid.uuid4().hex[:8]
+    admin = await _membro(f"AdminDuplo-{sufixo}", "adulto")
+    codigo = await criar_convite(admin, f"Apressado-{sufixo}", "adulto")
+
+    r1, r2 = await asyncio.gather(
+        usar_convite(codigo, "telegram", f"duplo-{sufixo}"),
+        usar_convite(codigo, "telegram", f"duplo-{sufixo}"),
+    )
+    motivos = sorted([r1[1], r2[1]])
+    assert motivos.count("ok") == 1
+    assert motivos[0] in ("ja_cadastrado", "ja_usado")
+
+    async with Sessao() as s:
+        res = await s.execute(select(Member).where(Member.nome == f"Apressado-{sufixo}"))
+        assert len(list(res.scalars())) == 1  # toque duplo NÃO cria dois membros

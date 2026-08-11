@@ -13,11 +13,13 @@ funil de onboarding também é funil."""
 import secrets
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
 
 from .analytics import emitir
 from .db.models import ChannelIdentity, InviteCode, Member
 from .db.session import Sessao
+from .identity import resolver_membro
 
 # Sem 0/O/1/I/L — o código vai ser lido em voz alta e digitado no celular
 _ALFABETO = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
@@ -55,17 +57,20 @@ async def usar_convite(codigo: str, canal: str, external_id: str) -> tuple[Membe
     """Consome o código e cadastra a identidade. Devolve (membro, motivo).
 
     Motivos de recusa: ja_cadastrado · codigo_invalido · ja_usado · expirado.
-    Nunca detalhamos ao usuário QUAL código existe — só se o dele valeu."""
-    async with Sessao() as s:
-        # Já é da família? Não desperdiça o código.
-        res = await s.execute(
-            select(Member)
-            .join(ChannelIdentity)
-            .where(ChannelIdentity.canal == canal, ChannelIdentity.external_id == str(external_id))
-        )
-        if (existente := res.scalar_one_or_none()) is not None:
-            return existente, "ja_cadastrado"
+    Nunca detalhamos ao usuário QUAL código existe — só se o dele valeu.
 
+    Corridas (o aiogram processa updates em paralelo):
+      - dois /vincular com o MESMO código: o UPDATE condicional abaixo garante
+        um único vencedor; o perdedor recebe ja_usado e o membro que ele criou
+        sai no rollback.
+      - a MESMA pessoa em toque duplo: o UniqueConstraint (canal, external_id)
+        derruba o segundo commit — capturamos e devolvemos ja_cadastrado."""
+    # Já é da família? Não desperdiça o código. (Mesma resolução da borda —
+    # identity.resolver_membro — para o /vincular nunca divergir do resto.)
+    if (existente := await resolver_membro(canal, external_id)) is not None:
+        return existente, "ja_cadastrado"
+
+    async with Sessao() as s:
         res = await s.execute(select(InviteCode).where(InviteCode.codigo == codigo.strip().upper()))
         convite = res.scalar_one_or_none()
         if convite is None:
@@ -84,11 +89,30 @@ async def usar_convite(codigo: str, canal: str, external_id: str) -> tuple[Membe
         membro = Member(nome=convite.nome, papel=convite.papel)
         s.add(membro)
         await s.flush()
+        # Consumo ATÔMICO: só um /vincular consegue rowcount 1 — a checagem
+        # "usado_por is None" lá em cima é cortesia (motivo amigável), a
+        # garantia é ESTA linha.
+        claim = await s.execute(
+            update(InviteCode)
+            .where(InviteCode.id == convite.id, InviteCode.usado_por.is_(None))
+            .values(usado_por=membro.id, usado_em=datetime.now(UTC))
+        )
+        if claim.rowcount != 1:  # outro /vincular ganhou a corrida
+            await s.rollback()
+            # Se o vencedor foi a MESMA pessoa (toque duplo), a resposta certa
+            # é "já nos conhecemos" — não "código já usado".
+            if (vencedor := await resolver_membro(canal, external_id)) is not None:
+                return vencedor, "ja_cadastrado"
+            await emitir("invite_rejected", motivo="ja_usado", canal=canal)
+            return None, "ja_usado"
         s.add(ChannelIdentity(member_id=membro.id, canal=canal, external_id=str(external_id)))
-        convite.usado_por = membro.id
-        convite.usado_em = datetime.now(UTC)
-        await s.commit()
-        await s.refresh(membro)
+        try:
+            await s.commit()
+        except IntegrityError:
+            # Toque duplo da mesma pessoa: a outra task cadastrou a identidade
+            # primeiro. O rollback desfaz ESTE membro e o consumo do código.
+            await s.rollback()
+            return await resolver_membro(canal, external_id), "ja_cadastrado"
 
     await emitir("invite_used", membro.id, papel=membro.papel, canal=canal)
     return membro, "ok"
