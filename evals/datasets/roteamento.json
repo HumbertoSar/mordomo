@@ -18,6 +18,8 @@
     { "frase": "qual o número da carteirinha do plano do Davi?", "esperado": "cofre" },
     { "frase": "guarda o CPF da vovó pra mim", "esperado": "cofre" },
     { "frase": "o que tem guardado no cofre?", "esperado": "cofre" },
+    { "frase": "me manda o RG do Davi", "esperado": "cofre", "nota": "documento em imagem — o cofre anexa via buscar_documento" },
+    { "frase": "preciso da carteirinha do plano pra fazer o reembolso", "esperado": "cofre" },
     {
       "frase": "cancela o segundo",
       "esperado": "lembretes",

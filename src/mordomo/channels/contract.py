@@ -57,9 +57,23 @@ Interaction = Confirmation | Choice | None
 
 
 @dataclass
+class Anexo:
+    """Arquivo a ENVIAR junto com a mensagem — semântico, não bytes.
+
+    O núcleo referencia o documento por id; quem carrega os bytes do banco e
+    escolhe como entregar (foto, documento, link) é o adapter do canal. Assim
+    o conteúdo nunca passa pelo LLM nem pelos traces (ADR-005)."""
+
+    documento_id: int
+    nome: str                        # "RG do Davi" — vira legenda/nome de arquivo
+    mime: str = "image/jpeg"
+
+
+@dataclass
 class OutboundMessage:
     texto: str
     interacao: Interaction = None    # None = informativo (texto puro)
+    anexos: list[Anexo] = field(default_factory=list)
 
 
 # ── Capacidades por canal + degradação ───────────────────────────────────
@@ -73,6 +87,7 @@ class Capabilities:
     supports_list: bool
     supports_free_proactive: bool    # WhatsApp: só na janela de 24h; fora dela, template
     max_texto: int = 4096            # corpo interativo no WhatsApp é 1024 — renderer trunca
+    supports_media: bool = True      # Telegram e WhatsApp enviam imagem/arquivo
 
 
 TELEGRAM_CAPS = Capabilities(

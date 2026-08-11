@@ -16,13 +16,23 @@ import logging
 from datetime import UTC, datetime
 
 from aiogram import Bot, Dispatcher, F
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandObject, CommandStart
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import (
+    BufferedInputFile,
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+)
+from sqlalchemy import select
 
 from ..analytics import emitir
 from ..config import settings
 from ..convites import VALIDADE_DIAS, criar_convite, usar_convite
 from ..core.pipeline import processar_entrada
+from ..db.models import Document
+from ..db.session import Sessao
 from ..identity import identidade_do_membro, resolver_membro
 from ..notify import registrar_adapter
 from ..observability import session_id_de
@@ -116,6 +126,54 @@ class TelegramAdapter:
             }
             await msg.answer(respostas[motivo])
 
+        @self.dp.message(F.photo | F.document)
+        async def documento(msg: Message) -> None:
+            # Guardar documento é ação de ADAPTER: os bytes vão direto ao banco,
+            # sem passar pelo LLM (ADR-005). A legenda é o nome do documento.
+            membro = await resolver_membro("telegram", str(msg.from_user.id))
+            if membro is None:
+                await msg.answer("Ainda não nos conhecemos — peça um convite e mande /vincular CÓDIGO. 🤝")
+                return
+            nome = (msg.caption or "").strip()
+            if not nome:
+                await msg.answer(
+                    "Recebi o arquivo, mas preciso de um nome! Reenvie com uma "
+                    "legenda, ex.: \"RG do Davi\" ou \"carteirinha do plano\". 📎"
+                )
+                return
+            if msg.photo:
+                arquivo, mime = msg.photo[-1], "image/jpeg"  # [-1] = maior resolução
+            else:
+                arquivo, mime = msg.document, (msg.document.mime_type or "application/octet-stream")
+            buffer = io.BytesIO()
+            await self.bot.download(arquivo.file_id, destination=buffer)
+            dados = buffer.getvalue()
+            async with Sessao() as s:
+                res = await s.execute(
+                    select(Document).where(Document.nome.ilike(nome), Document.dono == membro.id)
+                )
+                doc = res.scalar_one_or_none()
+                if doc is not None:
+                    doc.dados, doc.mime, doc.tamanho = dados, mime, len(dados)
+                    doc.telegram_file_id = arquivo.file_id
+                    acao = "atualizado"
+                else:
+                    doc = Document(
+                        nome=nome[:120], dono=membro.id, mime=mime, tamanho=len(dados),
+                        dados=dados, telegram_file_id=arquivo.file_id,
+                    )
+                    s.add(doc)
+                    acao = "guardado"
+                await s.commit()
+            await emitir(
+                "document_stored", membro.id, session_id_de(membro.id),
+                nome=nome, mime=mime, tamanho=len(dados),
+            )
+            await msg.answer(
+                f"Documento \"{nome}\" {acao} no cofre. 🗄️ "
+                f"É só pedir: \"me manda o {nome}\"."
+            )
+
         @self.dp.message(F.voice | F.audio)
         async def audio(msg: Message) -> None:
             # Transcrição é responsabilidade do ADAPTER (ADR-001): o núcleo só
@@ -204,7 +262,39 @@ class TelegramAdapter:
 
     # ── Renderização (contrato → Telegram) ───────────────────────────────
 
+    async def _enviar_anexos(self, chat_id: int, msg: OutboundMessage) -> None:
+        """Anexos do contrato → send_photo/send_document. Bytes saem do banco;
+        o file_id do Telegram é cacheado para reenvio sem re-upload."""
+        for anexo in msg.anexos:
+            async with Sessao() as s:
+                doc = await s.get(Document, anexo.documento_id)
+                if doc is None:
+                    log.warning("Anexo %s sumiu do banco", anexo.documento_id)
+                    continue
+                try:
+                    if doc.telegram_file_id:
+                        enviado = await self._enviar_midia(chat_id, doc.telegram_file_id, doc)
+                    else:
+                        raise TelegramBadRequest(method=None, message="sem file_id")
+                except TelegramBadRequest:
+                    # file_id inválido/expirado → sobe os bytes e re-cacheia
+                    arquivo = BufferedInputFile(doc.dados, filename=f"{doc.nome}.jpg")
+                    enviado = await self._enviar_midia(chat_id, arquivo, doc)
+                if enviado is not None:
+                    novo_id = (enviado.photo[-1].file_id if enviado.photo
+                               else enviado.document.file_id if enviado.document else None)
+                    if novo_id and novo_id != doc.telegram_file_id:
+                        doc.telegram_file_id = novo_id
+                        await s.commit()
+
+    async def _enviar_midia(self, chat_id: int, conteudo, doc: Document):
+        if doc.mime.startswith("image/"):
+            return await self.bot.send_photo(chat_id, conteudo, caption=doc.nome)
+        return await self.bot.send_document(chat_id, conteudo, caption=doc.nome)
+
     async def _enviar_chat(self, chat_id: int, msg: OutboundMessage) -> None:
+        if msg.anexos:
+            await self._enviar_anexos(chat_id, msg)
         modo = plan_rendering(msg.interacao, self.caps)
         if modo is RenderMode.PLAIN:
             await self.bot.send_message(chat_id, msg.texto)

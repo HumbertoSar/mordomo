@@ -15,6 +15,7 @@ from ..analytics import emitir_de
 from ..channels.contract import InboundMessage, OutboundMessage
 from ..db.models import Member
 from ..observability import config_invocacao
+from .anexos import coletar
 
 log = logging.getLogger(__name__)
 
@@ -76,4 +77,6 @@ async def processar_entrada(
         tamanho_resposta=len(texto),
     )
 
-    return turn_id, [OutboundMessage(texto=texto)]
+    # Anexos que as tools registraram durante o turno (core/anexos.py):
+    # o LLM só descreve; quem anexa é o sistema.
+    return turn_id, [OutboundMessage(texto=texto, anexos=coletar(turn_id))]

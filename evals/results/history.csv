@@ -11,3 +11,5 @@ ts,commit,eval,acertos,total,acuracia,detalhe
 2026-08-10T21:35:15-03:00,9fd4124,qualidade_resposta,14,14,1.0000,agente=anthropic/claude-sonnet-4.5 juiz=google/gemini-2.5-flash p50=6.5s
 2026-08-11T12:48:33-03:00,9ba9657,datas_ptbr,21,21,1.0000,resolver_data determinístico
 2026-08-11T12:49:11-03:00,9ba9657,roteamento,19,20,0.9500,anthropic/claude-haiku-4.5
+2026-08-11T12:57:42-03:00,b897f67,datas_ptbr,21,21,1.0000,resolver_data determinístico
+2026-08-11T12:58:18-03:00,b897f67,roteamento,21,22,0.9545,anthropic/claude-haiku-4.5

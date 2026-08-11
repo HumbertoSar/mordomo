@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy import JSON, DateTime, ForeignKey, String, UniqueConstraint
+from sqlalchemy import JSON, DateTime, ForeignKey, LargeBinary, String, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -94,6 +94,27 @@ class VaultItem(Base):
     atualizado_em: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=agora_utc, onupdate=agora_utc
     )
+
+
+class Document(Base):
+    """Documento/imagem da família (RG, carteirinha do plano, comprovante…).
+
+    Os bytes moram AQUI (Postgres da VPS) e nunca passam pelo LLM nem pelos
+    traces (ADR-005): o subagente só enxerga id + nome, e o adapter carrega os
+    bytes na hora de enviar. `telegram_file_id` é cache de reenvio — o Telegram
+    permite reenviar por id sem subir os bytes de novo; canais futuros ignoram."""
+
+    __tablename__ = "documents"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    nome: Mapped[str] = mapped_column(String(120))        # "RG do Davi" (chave natural)
+    dono: Mapped[int] = mapped_column(ForeignKey("members.id"))
+    compartilhado: Mapped[bool] = mapped_column(default=True)
+    mime: Mapped[str] = mapped_column(String(100), default="image/jpeg")
+    tamanho: Mapped[int] = mapped_column(default=0)       # bytes, para o dashboard
+    dados: Mapped[bytes] = mapped_column(LargeBinary)
+    telegram_file_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=agora_utc)
 
 
 class InviteCode(Base):

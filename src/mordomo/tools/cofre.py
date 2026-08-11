@@ -117,4 +117,58 @@ async def apagar_info(chave: str, config: RunnableConfig) -> str:
     return f"'{chave}' apagado do cofre."
 
 
-TOOLS_COFRE = [guardar_info, buscar_info, listar_cofre, apagar_info]
+@tool
+async def buscar_documento(termo: str, config: RunnableConfig) -> str:
+    """Busca um documento/imagem guardado (ex.: "RG do Davi", "carteirinha") e
+    o PREPARA para envio junto com a resposta. Os bytes nunca passam por você:
+    o sistema anexa sozinho — apenas confirme ao usuário o que está indo."""
+    from ..channels.contract import Anexo
+    from ..core.anexos import registrar
+    from ..db.models import Document
+
+    member_id = config["configurable"]["member_id"]
+    await emitir_de(config, "tool_called", tool="buscar_documento", termo=termo)
+    async with Sessao() as s:
+        res = await s.execute(
+            select(Document)
+            .where(
+                Document.nome.ilike(f"%{termo.strip()}%"),
+                or_(Document.compartilhado.is_(True), Document.dono == member_id),
+            )
+            .order_by(Document.nome)
+            .limit(3)
+        )
+        docs = list(res.scalars())
+    await emitir_de(config, "tool_result", tool="buscar_documento", ok=bool(docs), n=len(docs))
+    if not docs:
+        return (
+            f"Nenhum documento parecido com '{termo}'. Diga ao usuário que não achou "
+            "e que ele pode me enviar a foto com uma legenda (ex.: 'RG do Davi') para guardar."
+        )
+    for d in docs:
+        registrar(config, Anexo(documento_id=d.id, nome=d.nome, mime=d.mime))
+    nomes = ", ".join(d.nome for d in docs)
+    return f"Documento(s) anexado(s) à resposta: {nomes}. Confirme o envio em uma frase."
+
+
+@tool
+async def listar_documentos(config: RunnableConfig) -> str:
+    """Lista os documentos/imagens guardados (só os nomes)."""
+    from ..db.models import Document
+
+    member_id = config["configurable"]["member_id"]
+    await emitir_de(config, "tool_called", tool="listar_documentos")
+    async with Sessao() as s:
+        res = await s.execute(
+            select(Document.nome)
+            .where(or_(Document.compartilhado.is_(True), Document.dono == member_id))
+            .order_by(Document.nome)
+        )
+        nomes = [n for (n,) in res.all()]
+    await emitir_de(config, "tool_result", tool="listar_documentos", ok=True, n=len(nomes))
+    if not nomes:
+        return "Nenhum documento guardado. O usuário pode me enviar fotos com legenda para guardar."
+    return "Documentos guardados:\n" + "\n".join(f"• {n}" for n in nomes)
+
+
+TOOLS_COFRE = [guardar_info, buscar_info, listar_cofre, apagar_info, buscar_documento, listar_documentos]
