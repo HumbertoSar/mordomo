@@ -55,6 +55,9 @@ async def guardar_info(chave: str, valor: str, config: RunnableConfig, so_para_m
     """
     member_id = config["configurable"]["member_id"]
     chave = chave.strip()
+    # tool_called na ENTRADA, como todas as outras tools: se o commit falhar,
+    # o funil precisa mostrar que a chamada aconteceu (senão ela "nunca houve").
+    await emitir_de(config, "tool_called", tool="guardar_info", chave=chave)
     registrar_segredo(valor)
     async with Sessao() as s:
         res = await s.execute(
@@ -77,7 +80,6 @@ async def guardar_info(chave: str, valor: str, config: RunnableConfig, so_para_m
             acao = "guardada"
         await s.commit()
         await s.refresh(item)
-    await emitir_de(config, "tool_called", tool="guardar_info", chave=chave)
     await emitir_de(config, "tool_result", tool="guardar_info", ok=True, item_id=item.id)
     visibilidade = "só para você" if so_para_mim else "compartilhada com a família"
     return f"Informação '{chave}' {acao} no cofre ({visibilidade})."
@@ -96,9 +98,12 @@ async def buscar_info(termo: str, config: RunnableConfig) -> str:
             .limit(10)
         )
         itens = list(res.scalars())
-    await emitir_de(config, "tool_result", tool="buscar_info", ok=True, n=len(itens))
+    # Convenção do funil (igual buscar_documento): não achar = ok=False com
+    # motivo — é isso que alimenta o ranking de falhas e a curadoria.
     if not itens:
+        await emitir_de(config, "tool_result", tool="buscar_info", ok=False, motivo="nao_encontrado")
         return f"Nada no cofre parecido com '{termo}'. NÃO invente valor — diga que não achou."
+    await emitir_de(config, "tool_result", tool="buscar_info", ok=True, n=len(itens))
     for item in itens:
         registrar_segredo(item.valor)  # antes de voltar ao LLM → mascarado no trace
     return "\n".join(f"{i.chave}: {i.valor}" for i in itens)
@@ -179,12 +184,15 @@ async def buscar_documento(termo: str, config: RunnableConfig) -> str:
             .limit(3)
         )
         docs = list(res.scalars())
-    await emitir_de(config, "tool_result", tool="buscar_documento", ok=bool(docs), n=len(docs))
     if not docs:
+        await emitir_de(
+            config, "tool_result", tool="buscar_documento", ok=False, motivo="nao_encontrado"
+        )
         return (
             f"Nenhum documento parecido com '{termo}'. Diga ao usuário que não achou "
             "e que ele pode me enviar a foto com uma legenda (ex.: 'RG do Davi') para guardar."
         )
+    await emitir_de(config, "tool_result", tool="buscar_documento", ok=True, n=len(docs))
     for d in docs:
         registrar(config, Anexo(documento_id=d.id, nome=d.nome, mime=d.mime))
     nomes = ", ".join(d.nome for d in docs)
