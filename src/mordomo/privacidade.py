@@ -9,11 +9,15 @@ Por que uma LISTA de valores e não regex de PII: regex de CPF/CEP erra nos
 dois sentidos (deixa passar formato criativo, censura número inocente). Aqui o
 usuário DISSE que é segredo ao guardar no Cofre — certeza, não heurística.
 
-O registro vive em memória por processo (deque limitada). Reiniciou o bot,
-recomeça vazio e volta a crescer conforme o Cofre é usado — aceitável: o risco
-coberto é o vazamento contínuo via telemetria, não uma janela de boot."""
+O registro vive em memória por processo (deque limitada) e é REPOSTO no boot
+por `carregar_segredos_do_cofre()`: sem isso, após um restart o histórico do
+checkpointer reenviaria valores antigos do Cofre ao LLM — e portanto ao trace
+do Langfuse — sem máscara, até alguém usar o Cofre de novo."""
 
+import logging
 from collections import deque
+
+log = logging.getLogger(__name__)
 
 _MASCARA = "«cofre»"
 # 500 valores ≈ anos de uso de família; limite para nunca crescer sem teto
@@ -28,6 +32,29 @@ def registrar_segredo(valor: str | None) -> None:
     if len(valor) < 4 or valor in _segredos:
         return
     _segredos.append(valor)
+
+
+async def carregar_segredos_do_cofre() -> int:
+    """Repõe a máscara com o que já está no Cofre — chamar no boot (main.py).
+
+    Falha aqui não pode impedir o bot de subir (mesma filosofia do Langfuse
+    desligado): logamos e seguimos — a máscara volta a crescer com o uso."""
+    from sqlalchemy import select
+
+    from .db.models import VaultItem
+    from .db.session import Sessao
+
+    try:
+        async with Sessao() as s:
+            res = await s.execute(select(VaultItem.valor))
+            valores = [v for (v,) in res.all()]
+    except Exception:
+        log.exception("Não deu para repor a máscara do cofre no boot (seguindo sem)")
+        return 0
+    for valor in valores:
+        registrar_segredo(valor)
+    log.info("Máscara de traces reposta: %d segredo(s) do cofre", len(valores))
+    return len(valores)
 
 
 def mascarar(data, **kwargs):  # assinatura exigida pelo mask do Langfuse

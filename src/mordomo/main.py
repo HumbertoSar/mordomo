@@ -15,6 +15,7 @@ from .db.migracoes import aplicar_migracoes
 from .db.session import criar_tabelas
 from .observability import checar_langfuse
 from .plataforma import preparar
+from .privacidade import carregar_segredos_do_cofre
 
 log = logging.getLogger("mordomo")
 
@@ -33,6 +34,9 @@ async def main() -> None:
         # SQLite (dev/teste): sem migrações, o create_all resolve.
         await criar_tabelas()
     checar_langfuse()  # falha de observabilidade tem que aparecer no boot, não em setembro
+    # ANTES do primeiro turno: o histórico do checkpointer pode reenviar valores
+    # do cofre ao trace, e a máscara (ADR-005) zera a cada restart.
+    await carregar_segredos_do_cofre()
 
     async with AsyncExitStack() as stack:
         # Checkpointer: estado da conversa por membro (thread = membro, ADR-003)
