@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 
 from mordomo.analytics import emitir
 from mordomo.reporting import queries
-from mordomo.reporting.dashboard import _delta, _mini_trajetoria, _serie_evals, gerar_html
+from mordomo.reporting.dashboard import _delta, _mini_trajetoria, gerar_html
 
 
 async def test_gerar_html_monta_as_quatro_secoes():
@@ -22,7 +22,7 @@ async def test_gerar_html_monta_as_quatro_secoes():
 
 
 def test_serie_evals_le_o_historico_versionado():
-    serie = _serie_evals()
+    serie = queries.serie_evals()
     nomes = {e["nome"] for e in serie}
     # o history.csv é versionado — os três evals do projeto têm runs salvos
     assert {"datas_ptbr", "roteamento", "qualidade_resposta"} <= nomes

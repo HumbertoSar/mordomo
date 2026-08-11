@@ -115,37 +115,6 @@ def _ms(v: float | None) -> str:
     return "—" if v is None else f"{v / 1000:.1f}s"
 
 
-def _serie_evals() -> list[dict]:
-    """Lê evals/results/history.csv (versionado) e devolve, por eval, o último
-    run + a trajetória de acurácia — a seção Evaluation nasce daqui."""
-    import csv
-
-    caminho = pathlib.Path(__file__).resolve().parents[3] / "evals" / "results" / "history.csv"
-    if not caminho.exists():
-        return []
-    with caminho.open(encoding="utf-8", newline="") as f:
-        linhas = list(csv.DictReader(f))
-    por_eval: dict[str, list[dict]] = {}
-    for linha in linhas:
-        por_eval.setdefault(linha["eval"], []).append(linha)
-    saida = []
-    for nome, runs in por_eval.items():
-        ultimo = runs[-1]
-        saida.append(
-            {
-                "nome": nome,
-                "acertos": ultimo["acertos"],
-                "total": ultimo["total"],
-                "acuracia": float(ultimo["acuracia"]),
-                "quando": ultimo["ts"][:16].replace("T", " "),
-                "commit": ultimo["commit"],
-                "detalhe": ultimo.get("detalhe", ""),
-                "trajetoria": [float(r["acuracia"]) for r in runs[-8:]],
-            }
-        )
-    return sorted(saida, key=lambda x: x["nome"])
-
-
 def _mini_trajetoria(valores: list[float]) -> str:
     """Sparkline de acurácia em SVG — a história do eval numa célula de tabela."""
     if not valores:
@@ -245,7 +214,7 @@ def montar_html(d: dict) -> str:
             + " — o custo acima está SUBESTIMADO. Atualize <code>reporting/precos.py</code>.</p>"
         )
 
-    evals = _serie_evals()
+    evals = queries.serie_evals()
     linhas_evals = "".join(
         f"<tr><td>{html.escape(e['nome'])}</td>"
         f"<td class='num'>{e['acertos']}/{e['total']} ({e['acuracia']:.0%})</td>"

@@ -111,7 +111,6 @@ async def turnos(desde: datetime) -> dict:
         "por_dia": dict(sorted(por_dia.items())),
         "membros_por_dia": {d: len(m) for d, m in sorted(membros_por_dia.items())},
         "latencias_ms": latencias,
-        "p50_por_dia": {d: percentil(v, 0.50) for d, v in sorted(lat_por_dia.items())},
         "p95_por_dia": {d: percentil(v, 0.95) for d, v in sorted(lat_por_dia.items())},
     }
 
@@ -135,34 +134,23 @@ async def ferramentas(desde: datetime) -> dict:
     """Taxa de sucesso por tool e ranking de motivos de falha.
 
     O motivo é o achado mais acionável do projeto: `data_nao_entendida` no topo
-    significa expressão pt-BR que o parser não cobre — vira caso novo no eval."""
-    async with Sessao() as s:
-        res = await s.execute(
-            select(
-                ProductEvent.payload["tool"].as_string().label("tool"),
-                ProductEvent.payload["ok"].as_boolean().label("ok"),
-                func.count(),
-            )
-            .where(ProductEvent.ts >= desde, ProductEvent.tipo == "tool_result")
-            .group_by(text("1"), text("2"))  # ver nota em roteamento()
-        )
-        linhas = res.all()
+    significa expressão pt-BR que o parser não cobre — vira caso novo no eval.
 
+    Uma busca só: a lista de tool_result que os motivos exigem já contém tudo
+    que o GROUP BY de sucesso agregava — agregamos os dois em Python."""
+    eventos = await _eventos(desde, ("tool_result",))
     por_tool: dict[str, dict[str, int]] = defaultdict(lambda: {"ok": 0, "erro": 0})
-    for tool, ok, n in linhas:
-        por_tool[tool or "?"]["ok" if ok else "erro"] += n
-
-    falhas = await _eventos(desde, ("tool_result",))
-    motivos = Counter(
-        e.payload.get("motivo", "?")
-        for e in falhas
-        if e.payload and e.payload.get("ok") is False
-    )
+    motivos: Counter = Counter()
+    for e in eventos:
+        p = e.payload or {}
+        por_tool[p.get("tool") or "?"]["ok" if p.get("ok") else "erro"] += 1
+        if p.get("ok") is False:
+            motivos[p.get("motivo", "?")] += 1
     return {"por_tool": dict(por_tool), "motivos": motivos.most_common()}
 
 
 async def custo(desde: datetime) -> dict:
-    """Custo por nó e por dia, calculado na LEITURA a partir dos tokens.
+    """Custo por nó, calculado na LEITURA a partir dos tokens.
 
     A quebra por nó é a mais interessante do portfólio: mostra quanto custa
     ROTEAR versus quanto custa EXECUTAR."""
@@ -170,7 +158,6 @@ async def custo(desde: datetime) -> dict:
     por_no: dict[str, dict] = defaultdict(
         lambda: {"chamadas": 0, "input": 0, "output": 0, "usd": 0.0}
     )
-    por_dia: dict[str, float] = defaultdict(float)
     sem_preco: set[str] = set()
 
     for e in eventos:
@@ -188,19 +175,19 @@ async def custo(desde: datetime) -> dict:
             sem_preco.add(p.get("modelo") or "?")
         else:
             linha["usd"] += usd
-            por_dia[_dia(e.ts)] += usd
 
     total = sum(v["usd"] for v in por_no.values())
     return {
         "por_no": dict(por_no),
-        "por_dia": dict(sorted(por_dia.items())),
         "total_usd": total,
         "modelos_sem_preco": sorted(sem_preco),
     }
 
 
-async def lembretes(desde: datetime) -> dict:
-    contagens = await contagem_por_tipo(desde)
+async def lembretes(desde: datetime, contagens: dict[str, int] | None = None) -> dict:
+    # `contagens` pré-computado: o coletar() faz UM contagem_por_tipo e
+    # distribui — antes eram 4 GROUP BYs idênticos por /dashboard.
+    contagens = contagens if contagens is not None else await contagem_por_tipo(desde)
     return {
         "criados": contagens.get("reminder_created", 0),
         "disparados": contagens.get("reminder_fired", 0),
@@ -208,12 +195,12 @@ async def lembretes(desde: datetime) -> dict:
     }
 
 
-async def produto(desde: datetime) -> dict:
+async def produto(desde: datetime, contagens: dict[str, int] | None = None) -> dict:
     """As features fora do turno de conversa: cofre, pedidos, curadoria, convites.
 
     Regra viva do projeto: toda feature nova nasce instrumentada — esta query é
     onde o evento dela passa a aparecer no placar."""
-    contagens = await contagem_por_tipo(desde)
+    contagens = contagens if contagens is not None else await contagem_por_tipo(desde)
 
     pedidos = await _eventos(desde, ("feature_requested",))
     # Eventos v1 (antes do "Pedidos v2") não têm `categoria` — e o v1 só
@@ -263,8 +250,8 @@ async def resumo(desde: datetime, ate: datetime | None = None) -> dict:
     }
 
 
-async def saude(desde: datetime) -> dict:
-    contagens = await contagem_por_tipo(desde)
+async def saude(desde: datetime, contagens: dict[str, int] | None = None) -> dict:
+    contagens = contagens if contagens is not None else await contagem_por_tipo(desde)
     return {
         "erros_grafo": contagens.get("error", 0),
         "falhas_de_parse": contagens.get("orchestrator_parse_error", 0),
@@ -330,6 +317,41 @@ async def orfaos(desde: datetime) -> int:
         return res.scalar_one()
 
 
+def serie_evals() -> list[dict]:
+    """Lê evals/results/history.csv (versionado) e devolve, por eval, o último
+    run + a trajetória de acurácia — a seção Evaluation do dashboard nasce daqui.
+
+    Mora aqui (e não no dashboard) porque este módulo é O ponto de acesso a
+    dados do reporting — o dashboard só renderiza o que as queries entregam."""
+    import csv
+    import pathlib
+
+    caminho = pathlib.Path(__file__).resolve().parents[3] / "evals" / "results" / "history.csv"
+    if not caminho.exists():
+        return []
+    with caminho.open(encoding="utf-8", newline="") as f:
+        linhas = list(csv.DictReader(f))
+    por_eval: dict[str, list[dict]] = {}
+    for linha in linhas:
+        por_eval.setdefault(linha["eval"], []).append(linha)
+    saida = []
+    for nome, runs in por_eval.items():
+        ultimo = runs[-1]
+        saida.append(
+            {
+                "nome": nome,
+                "acertos": ultimo["acertos"],
+                "total": ultimo["total"],
+                "acuracia": float(ultimo["acuracia"]),
+                "quando": ultimo["ts"][:16].replace("T", " "),
+                "commit": ultimo["commit"],
+                "detalhe": ultimo.get("detalhe", ""),
+                "trajetoria": [float(r["acuracia"]) for r in runs[-8:]],
+            }
+        )
+    return sorted(saida, key=lambda x: x["nome"])
+
+
 async def orfaos_por_tipo(desde: datetime) -> list[tuple[str, int, str]]:
     """A quebra que transforma o KPI de órfãos em DIAGNÓSTICO: (tipo, n, dia do
     mais recente). Órfão com data recente = bug ativo de instrumentação; com
@@ -352,6 +374,7 @@ async def coletar(dias: int = 30) -> dict:
     """Tudo que o dashboard precisa, numa passada."""
     agora = datetime.now(UTC)
     desde = agora - timedelta(days=dias)
+    contagens = await contagem_por_tipo(desde)
     return {
         "dias": dias,
         "desde": desde,
@@ -360,13 +383,12 @@ async def coletar(dias: int = 30) -> dict:
         "roteamento": await roteamento(desde),
         "ferramentas": await ferramentas(desde),
         "custo": await custo(desde),
-        "lembretes": await lembretes(desde),
-        "produto": await produto(desde),
-        "saude": await saude(desde),
+        "lembretes": await lembretes(desde, contagens),
+        "produto": await produto(desde, contagens),
+        "saude": await saude(desde, contagens),
         "funil": await funil(desde),
         "orfaos": await orfaos(desde),
         "orfaos_detalhe": await orfaos_por_tipo(desde),
-        "contagens": await contagem_por_tipo(desde),
         # A MESMA janela, deslocada para trás: é contra ela que os KPIs mostram Δ.
         "anterior": await resumo(agora - timedelta(days=2 * dias), desde),
     }
