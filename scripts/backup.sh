@@ -8,6 +8,11 @@
 #
 # Dado de família não tem segunda chance: aqui moram lembretes, agenda, o
 # histórico de conversa (checkpointer) e a série de product_events inteira.
+#
+# Criptografia: com BACKUP_PASSPHRASE no .env, o dump sai .sql.gpg (AES256) —
+# o arquivo carrega o COFRE da família em claro; criptografado, um vazamento
+# da pasta de backups não vira vazamento do cofre. Restaurar:
+#   gpg -d backups/mordomo_X.sql.gpg | docker compose exec -T postgres psql -U mordomo -d mordomo
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -15,8 +20,18 @@ cd "$(dirname "$0")/.."
 MANTER_DIAS="${MANTER_DIAS:-30}"
 mkdir -p backups
 
+passphrase="${BACKUP_PASSPHRASE:-$(grep '^BACKUP_PASSPHRASE=' .env 2>/dev/null | tail -1 | cut -d= -f2- || true)}"
+
 arquivo="backups/mordomo_$(date +%F_%H%M).sql"
-docker compose exec -T postgres pg_dump -U mordomo -d mordomo > "$arquivo"
+if [ -n "$passphrase" ]; then
+    arquivo="$arquivo.gpg"
+    docker compose exec -T postgres pg_dump -U mordomo -d mordomo \
+        | gpg --batch --yes --symmetric --cipher-algo AES256 \
+              --passphrase "$passphrase" -o "$arquivo"
+else
+    echo "AVISO: sem BACKUP_PASSPHRASE no .env — dump em TEXTO PURO (contém o cofre)"
+    docker compose exec -T postgres pg_dump -U mordomo -d mordomo > "$arquivo"
+fi
 
 echo "Backup gravado: $arquivo ($(du -h "$arquivo" | cut -f1))"
-find backups -name 'mordomo_*.sql' -mtime "+$MANTER_DIAS" -delete
+find backups -name 'mordomo_*.sql*' -mtime "+$MANTER_DIAS" -delete

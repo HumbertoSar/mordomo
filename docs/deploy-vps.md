@@ -109,6 +109,14 @@ crontab -e
 Snapshots da Hostinger protegem o disco inteiro, mas um `pg_dump` diário é o
 que permite restaurar SÓ o banco, e inspecionar o conteúdo.
 
+O dump contém o **cofre da família em claro**. Defina `BACKUP_PASSPHRASE` no
+`.env` (e guarde uma cópia da passphrase fora da VPS, num gerenciador de
+senhas) para o script gravar `.sql.gpg` criptografado. Restaurar:
+
+```bash
+gpg -d backups/mordomo_X.sql.gpg | docker compose exec -T postgres psql -U mordomo -d mordomo
+```
+
 ## 6. Atualizar (a cada mudança de código)
 
 ```bash
