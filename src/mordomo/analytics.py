@@ -6,8 +6,7 @@ doc `gestao-a-vista-agente-whatsapp.md`):
   do turno de conversa:
     message_received · orchestrator_decision · orchestrator_parse_error ·
     tool_called · tool_result · llm_usage · turn_completed · message_sent ·
-    reminder_created · feature_requested · feature_issue_created · error ·
-    cofre_recusado_grupo
+    reminder_created · feature_requested · feature_issue_created · error
   fora de turno (comandos, jobs — SEM turn_id por desenho):
     reminder_fired · proactive_sent · unknown_user · document_stored ·
     dashboard_sent · curation_run · invite_created · invite_used · invite_rejected

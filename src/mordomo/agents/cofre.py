@@ -1,10 +1,6 @@
 """Subagente Cofre — informações da família (CEP, documentos, dados de uso
 recorrente). O dado mais sensível do sistema: ver ADR-005 e tools/cofre.py."""
 
-from langchain_core.messages import AIMessage
-
-from ..analytics import emitir_de
-from ..core.state import EstadoMordomo
 from ..tools.cofre import TOOLS_COFRE
 from ._base import NoSubagente
 
@@ -23,19 +19,14 @@ Regras:
 - Ao responder uma consulta, use SOMENTE o que a tool devolver. Se não achou,
   diga que não está no cofre e ofereça guardar — NUNCA invente um valor.
 - "só pra mim" / "particular" → so_para_mim=True.
+- No GRUPO da família, as tools só devolvem o que é compartilhado — itens
+  "só pra mim" ficam para o chat privado (as tools já garantem isso; se algo
+  não aparecer no grupo, sugira perguntar no privado).
 - Respostas curtas, tom de mordomo discreto (é um cofre!), formato WhatsApp.
 """
 
-_no_cofre_base = NoSubagente("cofre", TOOLS_COFRE, PROMPT_COFRE)
-
-
-async def no_cofre(state: EstadoMordomo, config) -> dict:
-    # Cofre NUNCA responde em grupo (ADR-008): a resposta iria para todos no
-    # chat — inclusive não-membros que estejam lá — com valor ou documento.
-    # Guard determinístico ANTES do LLM: prompt não é barreira de segurança.
-    if config.get("configurable", {}).get("grupo_id"):
-        await emitir_de(config, "cofre_recusado_grupo")
-        return {"messages": [AIMessage(
-            "Assunto de cofre é só no privado — me chame lá que eu te atendo. 🤫"
-        )]}
-    return await _no_cofre_base(state, config)
+# Decisão de produto (11/08): o cofre RESPONDE no grupo da família — mas as
+# tools filtram para "compartilhado apenas" quando o turno tem grupo_id
+# (tools/cofre.py::_visiveis). O guard é determinístico nas tools, não no
+# prompt: item "só pra mim" não existe para um chat coletivo.
+no_cofre = NoSubagente("cofre", TOOLS_COFRE, PROMPT_COFRE)

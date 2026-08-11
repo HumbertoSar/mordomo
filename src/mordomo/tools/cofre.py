@@ -17,9 +17,20 @@ from ..db.session import Sessao
 from ..privacidade import registrar_segredo
 
 
-def _visiveis(member_id: int):
-    """Itens que este membro pode ler: compartilhados + os próprios."""
+def _visiveis(member_id: int, em_grupo: bool = False):
+    """Itens que este membro pode ler.
+
+    No privado: compartilhados + os próprios. Em GRUPO (decisão de produto,
+    11/08): só o compartilhado — o grupo da família VÊ o cofre da família,
+    mas item "só pra mim" não aparece num chat coletivo; para ele, o privado.
+    `em_grupo` vem do configurable (grupo_id), nunca do texto do LLM."""
+    if em_grupo:
+        return VaultItem.compartilhado.is_(True)
     return or_(VaultItem.compartilhado.is_(True), VaultItem.dono == member_id)
+
+
+def _em_grupo(config) -> bool:
+    return bool(config["configurable"].get("grupo_id"))
 
 
 _STOPWORDS = {"de", "do", "da", "dos", "das", "e", "o", "a", "os", "as", "meu", "minha"}
@@ -93,7 +104,7 @@ async def buscar_info(termo: str, config: RunnableConfig) -> str:
     async with Sessao() as s:
         res = await s.execute(
             select(VaultItem)
-            .where(_por_palavras(VaultItem.chave, termo), _visiveis(member_id))
+            .where(_por_palavras(VaultItem.chave, termo), _visiveis(member_id, _em_grupo(config)))
             .order_by(VaultItem.chave)
             .limit(10)
         )
@@ -116,7 +127,9 @@ async def listar_cofre(config: RunnableConfig) -> str:
     await emitir_de(config, "tool_called", tool="listar_cofre")
     async with Sessao() as s:
         res = await s.execute(
-            select(VaultItem.chave).where(_visiveis(member_id)).order_by(VaultItem.chave)
+            select(VaultItem.chave)
+            .where(_visiveis(member_id, _em_grupo(config)))
+            .order_by(VaultItem.chave)
         )
         chaves = [c for (c,) in res.all()]
     await emitir_de(config, "tool_result", tool="listar_cofre", ok=True, n=len(chaves))
@@ -138,6 +151,9 @@ async def apagar_info(chave: str, config: RunnableConfig) -> str:
             .order_by(VaultItem.id)
         )
         itens = list(res.scalars())
+        if _em_grupo(config):
+            # No grupo só "existe" o que é compartilhado (mesma regra da busca)
+            itens = [i for i in itens if i.compartilhado]
         if papel != "adulto":
             # Criança só ENXERGA os próprios itens aqui: a resposta "não achei"
             # para item alheio evita o oráculo de existência ("senha do cartão
@@ -173,13 +189,15 @@ async def buscar_documento(termo: str, config: RunnableConfig) -> str:
 
     member_id = config["configurable"]["member_id"]
     await emitir_de(config, "tool_called", tool="buscar_documento", termo=termo)
+    visivel = (
+        Document.compartilhado.is_(True)
+        if _em_grupo(config)  # grupo vê o da família; o "particular" fica no privado
+        else or_(Document.compartilhado.is_(True), Document.dono == member_id)
+    )
     async with Sessao() as s:
         res = await s.execute(
             select(Document)
-            .where(
-                _por_palavras(Document.nome, termo),
-                or_(Document.compartilhado.is_(True), Document.dono == member_id),
-            )
+            .where(_por_palavras(Document.nome, termo), visivel)
             .order_by(Document.nome)
             .limit(3)
         )
@@ -206,11 +224,14 @@ async def listar_documentos(config: RunnableConfig) -> str:
 
     member_id = config["configurable"]["member_id"]
     await emitir_de(config, "tool_called", tool="listar_documentos")
+    visivel = (
+        Document.compartilhado.is_(True)
+        if _em_grupo(config)
+        else or_(Document.compartilhado.is_(True), Document.dono == member_id)
+    )
     async with Sessao() as s:
         res = await s.execute(
-            select(Document.nome)
-            .where(or_(Document.compartilhado.is_(True), Document.dono == member_id))
-            .order_by(Document.nome)
+            select(Document.nome).where(visivel).order_by(Document.nome)
         )
         nomes = [n for (n,) in res.all()]
     await emitir_de(config, "tool_result", tool="listar_documentos", ok=True, n=len(nomes))

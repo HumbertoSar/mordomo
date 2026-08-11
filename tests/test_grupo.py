@@ -38,62 +38,57 @@ def test_config_de_grupo_troca_thread_e_sessao():
     assert cfg["metadata"]["langfuse_session_id"] == c["session_id"]
 
 
-async def test_cofre_recusa_grupo_antes_do_llm():
-    """Segurança, não prompt: em grupo o no_cofre devolve recusa SEM invocar o
-    agente (senão o valor/documento sairia para todos no chat)."""
-    from sqlalchemy import select
+def _cfg_grupo(membro, turn: str, grupo: str = "777") -> dict:
+    return {"configurable": {"member_id": membro.id, "member_papel": membro.papel,
+                             "session_id": f"g{grupo}:teste", "turn_id": turn,
+                             "grupo_id": grupo}}
 
-    from mordomo.agents import cofre as agente_cofre
-    from mordomo.db.models import ProductEvent
+
+async def test_cofre_em_grupo_mostra_so_o_compartilhado():
+    """Decisão de produto (11/08): o grupo da família VÊ o cofre da família —
+    mas item "só pra mim" não aparece num chat coletivo (fica pro privado).
+    O filtro é determinístico nas tools (grupo_id do configurable), não prompt."""
+    from apoio import cfg_de, criar_membro
+    from mordomo.tools.cofre import buscar_info, guardar_info, listar_cofre
+
+    m = await criar_membro("GrupoCofreDono")
+    await guardar_info.ainvoke(
+        {"chave": "cep da casa da praia", "valor": "11111-000"}, cfg_de(m, "t-gc1")
+    )
+    await guardar_info.ainvoke(
+        {"chave": "cep do consultório secreto", "valor": "22222-000", "so_para_mim": True},
+        cfg_de(m, "t-gc2"),
+    )
+
+    # No GRUPO: o compartilhado aparece; o "só pra mim" nem para o próprio dono
+    r = await buscar_info.ainvoke({"termo": "cep"}, _cfg_grupo(m, "t-gc3"))
+    assert "11111-000" in r
+    assert "22222-000" not in r
+    r = await listar_cofre.ainvoke({}, _cfg_grupo(m, "t-gc4"))
+    assert "casa da praia" in r and "consultório secreto" not in r
+
+    # No PRIVADO: o dono continua vendo os dois
+    r = await buscar_info.ainvoke({"termo": "cep"}, cfg_de(m, "t-gc5"))
+    assert "11111-000" in r and "22222-000" in r
+
+
+async def test_documento_privado_nao_aparece_no_grupo():
+    from apoio import cfg_de, criar_membro
+    from mordomo.db.models import Document
     from mordomo.db.session import Sessao
+    from mordomo.tools.cofre import listar_documentos
 
-    # Sentinela: se o guard falhar e o nó tentar criar/invocar o agente real,
-    # o teste quebra aqui — não em rede (regra nº 7).
-    original = agente_cofre._no_cofre_base.agente
-
-    class _Explode:
-        async def ainvoke(self, *a, **k):
-            raise AssertionError("cofre invocou o LLM numa conversa de grupo")
-
-    agente_cofre._no_cofre_base.agente = _Explode()
-    try:
-        cfg = {"configurable": {"member_id": 4, "session_id": "g777:t",
-                                "turn_id": "t-cofre-grupo", "grupo_id": "777"}}
-        resultado = await agente_cofre.no_cofre({"messages": []}, cfg)
-        assert "privado" in resultado["messages"][-1].content
-    finally:
-        agente_cofre._no_cofre_base.agente = original
-
+    m = await criar_membro("GrupoDocDono")
     async with Sessao() as s:
-        res = await s.execute(
-            select(ProductEvent).where(ProductEvent.turn_id == "t-cofre-grupo")
-        )
-        tipos = [e.tipo for e in res.scalars()]
-    assert "cofre_recusado_grupo" in tipos
+        s.add(Document(nome="exame reservado", dono=m.id, dados=b"x", tamanho=1,
+                       compartilhado=False))
+        s.add(Document(nome="carteirinha da família", dono=m.id, dados=b"x", tamanho=1))
+        await s.commit()
 
-
-async def test_cofre_atende_normalmente_no_privado():
-    """Sem grupo_id o guard não pode disparar — o nó segue para o agente."""
-    from mordomo.agents import cofre as agente_cofre
-
-    class _AgenteFake:
-        async def ainvoke(self, entrada, config):
-            from langchain_core.messages import AIMessage
-
-            return {"messages": [*entrada["messages"], AIMessage("do cofre: 04538-132")]}
-
-    original = agente_cofre._no_cofre_base.agente
-    agente_cofre._no_cofre_base.agente = _AgenteFake()
-    try:
-        from langchain_core.messages import HumanMessage
-
-        cfg = {"configurable": {"member_id": 4, "session_id": "4:t", "turn_id": "t-cofre-priv"}}
-        resultado = await agente_cofre.no_cofre(
-            {"messages": [HumanMessage("qual o CEP de casa?")]}, cfg
-        )
-        assert "04538-132" in resultado["messages"][-1].content
-    finally:
-        agente_cofre._no_cofre_base.agente = original
+    r = await listar_documentos.ainvoke({}, _cfg_grupo(m, "t-gc6"))
+    assert "carteirinha da família" in r and "exame reservado" not in r
+    r = await listar_documentos.ainvoke({}, cfg_de(m, "t-gc7"))
+    assert "exame reservado" in r  # no privado o dono vê o dele
 
 
 def test_config_privada_continua_por_membro():
