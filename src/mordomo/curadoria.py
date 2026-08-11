@@ -150,7 +150,8 @@ async def rodar_curadoria(dias: int = 7) -> dict:
             f"```json\n{casos}\n```"
         )
         url = await criar_issue(
-            f"casos de eval propostos ({datetime.now(ZoneInfo(settings.tz_familia)):%d/%m})",
+            f"{len(achados['expressoes_de_data_falhas'])} caso(s) de eval propostos "
+            f"({datetime.now(ZoneInfo(settings.tz_familia)):%d/%m})",
             corpo,
             "curadoria automática",
             "sistema",

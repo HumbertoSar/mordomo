@@ -10,11 +10,29 @@ from mordomo.db.session import Sessao
 from mordomo.github_issues import montar_payload
 
 
-def test_payload_da_issue_tem_rotulo_e_autor():
+def test_payload_padrao_nao_publica_conversa_nem_autor():
+    """O repo das issues é PÚBLICO: sem detalhado=True, nem o texto original
+    nem o nome do autor podem aparecer no corpo (só o título curto)."""
     p = montar_payload("pedir pizza pelo mordomo", "você devia saber pedir pizza", "Davi", "adulto")
     assert p["title"] == "[família] pedir pizza pelo mordomo"
-    assert "Davi" in p["body"] and "pedir pizza" in p["body"]
+    assert "Davi" not in p["body"]
+    assert "pedir pizza" not in p["body"]  # o pedido bruto fica em product_events
     assert p["labels"] == ["pedido-da-familia"]
+
+
+def test_payload_detalhado_tem_rotulo_e_autor():
+    p = montar_payload("pedir pizza pelo mordomo", "você devia saber pedir pizza",
+                       "Davi", "adulto", detalhado=True)
+    assert "Davi" in p["body"] and "pedir pizza" in p["body"]
+
+
+def test_payload_detalhado_cita_todas_as_linhas():
+    """Pedido multilinha: sem o '> ' por linha, a 2ª linha escapa do blockquote
+    e vira markdown solto (título, imagem) publicado em nome do bot."""
+    p = montar_payload("t", "linha um\n# injeção de título", "A", "adulto", detalhado=True)
+    assert "> linha um" in p["body"]
+    assert "> # injeção de título" in p["body"]
+    assert "\n# injeção" not in p["body"]
 
 
 def test_titulo_gigante_e_truncado():
@@ -28,6 +46,15 @@ def test_problema_ganha_rotulo_e_prefixo_proprios():
     assert p["title"].startswith("[problema]")
     assert p["labels"] == ["problema-reportado"]
     assert "Problema relatado" in p["body"]
+
+
+def test_curadoria_sem_detalhe_aponta_para_o_funil():
+    corpo_com_casos = '```json\n{"expressao": "amanhã dpois do almoço"}\n```'
+    p = montar_payload("3 caso(s) de eval propostos", corpo_com_casos,
+                       "curadoria automática", "sistema", categoria="curadoria")
+    assert p["labels"] == ["curadoria-evals"]
+    assert "amanhã dpois" not in p["body"]  # expressão real da família não vaza
+    assert "product_events" in p["body"]
 
 
 async def test_no_pedidos_problema_pede_desculpa():

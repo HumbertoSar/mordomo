@@ -54,6 +54,10 @@ class Settings(BaseSettings):
     # Pedidos da família → issues (vazio = só registra em product_events)
     github_token: str = ""
     github_repo: str = "HumbertoSar/mordomo"
+    # O repo acima é PÚBLICO: por padrão a issue leva só o título curto — o
+    # texto original e o autor ficam em product_events. True só se o repo das
+    # issues for privado (ou você aceitar publicar conversa da família).
+    github_issues_detalhadas: bool = False
 
     # Comportamento
     tz_familia: str = "America/Sao_Paulo"
