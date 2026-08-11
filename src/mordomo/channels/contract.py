@@ -27,6 +27,10 @@ class InboundMessage:
     timestamp: datetime
     veio_de_audio: bool = False
     reply_to: str | None = None
+    # ADR-008: preenchido quando a mensagem veio de um GRUPO — muda a thread
+    # (grupo, não membro) e a sessão de analytics. O núcleo não sabe o canal;
+    # sabe que a conversa é coletiva.
+    grupo_id: str | None = None
 
 
 # ── Saída (semântica, não visual) ────────────────────────────────────────

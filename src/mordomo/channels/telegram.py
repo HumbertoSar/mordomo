@@ -36,7 +36,7 @@ from ..db.models import Document
 from ..db.session import Sessao
 from ..identity import identidade_do_membro, resolver_membro
 from ..notify import registrar_adapter
-from ..observability import session_id_de
+from ..observability import session_de_grupo, session_id_de
 from . import transcricao
 from .contract import (
     TELEGRAM_CAPS,
@@ -68,6 +68,17 @@ def _nome_da_legenda(legenda: str) -> str:
     return nome or legenda.strip()
 
 
+def _direcionado_ao_bot(texto: str, username: str, reply_ao_bot: bool) -> tuple[bool, str]:
+    """ADR-008: em grupo o mordomo só age quando chamado — menção ao @username
+    (removida do texto) ou reply a uma mensagem dele. Devolve (é_para_mim, texto)."""
+    if not username:
+        return False, texto
+    padrao = re.compile(rf"@{re.escape(username)}\b", re.IGNORECASE)
+    if padrao.search(texto):
+        return True, padrao.sub("", texto).strip() or texto
+    return reply_ao_bot, texto
+
+
 class TelegramAdapter:
     caps = TELEGRAM_CAPS
 
@@ -75,9 +86,12 @@ class TelegramAdapter:
         self.grafo = grafo
         self.bot = Bot(token=settings.telegram_bot_token)
         self.dp = Dispatcher()
-        self._buffers: dict[int, list[str]] = {}
-        self._tarefas: dict[int, asyncio.Task] = {}
-        self._veio_audio: dict[int, bool] = {}  # algum item do buffer nasceu de voz?
+        # Buffers por (chat, usuário): a mesma pessoa pode conversar no privado
+        # e no grupo ao mesmo tempo sem os debounces se misturarem (ADR-008)
+        self._buffers: dict[tuple[int, int], list[str]] = {}
+        self._tarefas: dict[tuple[int, int], asyncio.Task] = {}
+        self._veio_audio: dict[tuple[int, int], bool] = {}
+        self._username: str = ""  # preenchido no start() via get_me()
         self._registrar_handlers()
         registrar_adapter(self)
 
@@ -165,6 +179,14 @@ class TelegramAdapter:
         async def documento(msg: Message) -> None:
             # Guardar documento é ação de ADAPTER: os bytes vão direto ao banco,
             # sem passar pelo LLM (ADR-005). A legenda é o nome do documento.
+            legenda = msg.caption or ""
+            if msg.chat.type != "private":
+                # ADR-008: foto compartilhada no grupo NÃO vira documento por
+                # acidente — só com menção explícita na legenda.
+                para_mim, legenda = _direcionado_ao_bot(legenda, self._username, False)
+                if not para_mim:
+                    return
+                msg = msg.model_copy(update={"caption": legenda})
             membro = await resolver_membro("telegram", str(msg.from_user.id))
             if membro is None:
                 await msg.answer("Ainda não nos conhecemos — peça um convite e mande /vincular CÓDIGO. 🤝")
@@ -213,6 +235,8 @@ class TelegramAdapter:
         async def audio(msg: Message) -> None:
             # Transcrição é responsabilidade do ADAPTER (ADR-001): o núcleo só
             # vê texto. Sem GROQ_API_KEY, recusa simpática — o resto funciona.
+            if msg.chat.type != "private":
+                return  # ADR-008: não dá para mencionar o bot dentro da voz
             if not transcricao.disponivel():
                 await msg.answer(
                     "Áudio ainda não entra na minha alçada — por ora, escreva. 🙏"
@@ -231,7 +255,20 @@ class TelegramAdapter:
 
         @self.dp.message(F.text)
         async def texto(msg: Message) -> None:
-            await self._receber(msg.chat.id, msg.from_user.id, msg.text or "", str(msg.message_id))
+            corpo = msg.text or ""
+            em_grupo = msg.chat.type != "private"
+            if em_grupo:
+                reply_ao_bot = bool(
+                    msg.reply_to_message
+                    and msg.reply_to_message.from_user
+                    and msg.reply_to_message.from_user.id == self.bot.id
+                )
+                para_mim, corpo = _direcionado_ao_bot(corpo, self._username, reply_ao_bot)
+                if not para_mim:
+                    return  # conversa da família — o mordomo não se intromete
+            await self._receber(
+                msg.chat.id, msg.from_user.id, corpo, str(msg.message_id), em_grupo=em_grupo
+            )
 
         @self.dp.callback_query()
         async def callback(cb: CallbackQuery) -> None:
@@ -242,25 +279,35 @@ class TelegramAdapter:
     # ── Debounce + pipeline ──────────────────────────────────────────────
 
     async def _receber(
-        self, chat_id: int, user_id: int, texto: str, message_id: str, de_audio: bool = False
+        self,
+        chat_id: int,
+        user_id: int,
+        texto: str,
+        message_id: str,
+        de_audio: bool = False,
+        em_grupo: bool = False,
     ) -> None:
-        self._buffers.setdefault(user_id, []).append(texto)
+        chave = (chat_id, user_id)
+        self._buffers.setdefault(chave, []).append(texto)
         if de_audio:
-            self._veio_audio[user_id] = True
-        if tarefa := self._tarefas.get(user_id):
+            self._veio_audio[chave] = True
+        if tarefa := self._tarefas.get(chave):
             tarefa.cancel()
-        self._tarefas[user_id] = asyncio.create_task(
-            self._flush_apos(chat_id, user_id, message_id)
+        self._tarefas[chave] = asyncio.create_task(
+            self._flush_apos(chat_id, user_id, message_id, em_grupo)
         )
 
-    async def _flush_apos(self, chat_id: int, user_id: int, message_id: str) -> None:
+    async def _flush_apos(
+        self, chat_id: int, user_id: int, message_id: str, em_grupo: bool
+    ) -> None:
         try:
             await asyncio.sleep(settings.debounce_segundos)
         except asyncio.CancelledError:
             return  # chegou mais mensagem; o novo flush cuida de tudo
-        textos = self._buffers.pop(user_id, [])
-        self._tarefas.pop(user_id, None)
-        veio_de_audio = self._veio_audio.pop(user_id, False)
+        chave = (chat_id, user_id)
+        textos = self._buffers.pop(chave, [])
+        self._tarefas.pop(chave, None)
+        veio_de_audio = self._veio_audio.pop(chave, False)
         if not textos:
             return
 
@@ -274,22 +321,30 @@ class TelegramAdapter:
             )
             return
 
+        texto_final = "\n".join(textos)
+        if em_grupo:
+            # ADR-008: a thread do grupo mistura vozes — o LLM precisa saber
+            # quem disse o quê. No privado o prefixo seria ruído.
+            texto_final = f"{membro.nome}: {texto_final}"
+
         inbound = InboundMessage(
             member_id=membro.id,
             canal="telegram",
-            texto="\n".join(textos),
+            texto=texto_final,
             message_id=message_id,
             timestamp=datetime.now(UTC),
             veio_de_audio=veio_de_audio,
+            grupo_id=str(chat_id) if em_grupo else None,
         )
         await self.bot.send_chat_action(chat_id, "typing")
         turn_id, respostas = await processar_entrada(membro, inbound, self.grafo)
+        session = session_de_grupo(str(chat_id)) if em_grupo else session_id_de(membro.id)
         for resposta in respostas:
             await self._enviar_chat(chat_id, resposta)
             await emitir(
                 "message_sent",
                 membro.id,
-                session_id_de(membro.id),
+                session,
                 turn_id,
                 canal="telegram",
                 tamanho=len(resposta.texto),
@@ -367,5 +422,7 @@ class TelegramAdapter:
             log.warning("Membro %s sem identidade telegram", member_id)
 
     async def start(self) -> None:
-        log.info("Telegram: long polling iniciado")
+        eu = await self.bot.get_me()
+        self._username = (eu.username or "").lower()
+        log.info("Telegram: long polling iniciado (@%s; grupos: mencione ou responda)", eu.username)
         await self.dp.start_polling(self.bot)

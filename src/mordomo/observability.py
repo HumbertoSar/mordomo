@@ -76,27 +76,42 @@ def session_id_de(member_id: int) -> str:
     return f"{member_id}:{hoje.isoformat()}"
 
 
+def session_de_grupo(grupo_id: str) -> str:
+    """Sessão diária do GRUPO (ADR-008): a conversa coletiva tem replay próprio."""
+    hoje = datetime.now(ZoneInfo(settings.tz_familia)).date()
+    return f"g{grupo_id}:{hoje.isoformat()}"
+
+
 def config_invocacao(
-    member_id: int, member_nome: str, member_papel: str, turn_id: str
+    member_id: int,
+    member_nome: str,
+    member_papel: str,
+    turn_id: str,
+    grupo_id: str | None = None,
 ) -> dict:
-    """Config do LangGraph: thread por MEMBRO (ADR-003) + metadados Langfuse.
+    """Config do LangGraph: thread por MEMBRO (ADR-003) — ou por GRUPO (ADR-008),
+    quando a conversa é coletiva; a identidade continua individual.
 
     `session_id` e `turn_id` viajam no MESMO `configurable` que já carrega o
     member_id — assim qualquer nó ou tool consegue emitir analytics rastreável
     sem receber parâmetro extra nem depender de variável global."""
+    if grupo_id:
+        thread_id, session_id = f"grupo-{grupo_id}", session_de_grupo(grupo_id)
+    else:
+        thread_id, session_id = f"membro-{member_id}", session_id_de(member_id)
     return {
         "configurable": {
-            "thread_id": f"membro-{member_id}",
+            "thread_id": thread_id,
             "member_id": member_id,
             "member_nome": member_nome,
             "member_papel": member_papel,
-            "session_id": session_id_de(member_id),
+            "session_id": session_id,
             "turn_id": turn_id,
         },
         "callbacks": langfuse_callbacks(),
         "metadata": {
             "langfuse_user_id": str(member_id),
-            "langfuse_session_id": session_id_de(member_id),
+            "langfuse_session_id": session_id,
             "langfuse_tags": ["mordomo", settings.ambiente],
             # Chaves sem prefixo langfuse_ viram metadata do trace: é a ponte
             # entre um trace e as linhas de product_events do mesmo turno.

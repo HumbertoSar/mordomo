@@ -39,7 +39,7 @@ async def processar_entrada(
     sabe se a mensagem saiu de verdade é ele — mas precisa entrar no mesmo funil
     do resto do turno. O adapter recebe um id opaco; não sabe como foi gerado."""
     turn_id = uuid.uuid4().hex[:12]
-    cfg = config_invocacao(membro.id, membro.nome, membro.papel, turn_id)
+    cfg = config_invocacao(membro.id, membro.nome, membro.papel, turn_id, inbound.grupo_id)
 
     await emitir_de(
         cfg,
