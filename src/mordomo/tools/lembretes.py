@@ -33,13 +33,14 @@ def _fmt(dt: datetime) -> str:
 
 @tool
 async def criar_lembrete(texto: str, quando: str, config: RunnableConfig) -> str:
-    """Cria um lembrete para o membro atual.
+    """Cria um lembrete para o membro atual — único OU recorrente.
 
     Args:
         texto: o que lembrar (curto, ex.: "pagar o boleto da escola").
         quando: a expressão de tempo EXATAMENTE como o usuário disse, em
-            português (ex.: "amanhã às 8h", "sexta que vem 19:30", "todo dia 5"
-            ainda não é suportado — recorrência chega na fase 2).
+            português. Único: "amanhã às 8h", "sexta que vem 19:30".
+            Recorrente (suportado!): "todo dia às 8h", "toda segunda às 7h30",
+            "todo dia 5 às 9h" — a tool detecta e reagenda sozinha.
     """
     member_id = config["configurable"]["member_id"]
     await emitir_de(config, "tool_called", tool="criar_lembrete", quando=quando)

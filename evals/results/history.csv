@@ -7,3 +7,5 @@ ts,commit,eval,acertos,total,acuracia,detalhe
 2026-08-10T20:50:19-03:00,a1660da,qualidade_resposta,12,12,1.0000,agente=anthropic/claude-sonnet-4.5 juiz=google/gemini-2.5-flash p50=5.1s
 2026-08-10T20:50:21-03:00,a1660da,datas_ptbr,21,21,1.0000,resolver_data determinístico
 2026-08-10T20:56:00-03:00,a1660da,qualidade_resposta,11,12,0.9167,agente=anthropic/claude-haiku-4.5 juiz=google/gemini-2.5-flash p50=4.5s
+2026-08-10T21:29:09-03:00,9fd4124,datas_ptbr,21,21,1.0000,resolver_data determinístico
+2026-08-10T21:35:15-03:00,9fd4124,qualidade_resposta,14,14,1.0000,agente=anthropic/claude-sonnet-4.5 juiz=google/gemini-2.5-flash p50=6.5s

@@ -24,6 +24,10 @@
     { "frase": "me indica um filme pra hoje à noite",
       "expectativa": "Fora do escopo atual: dizer com bom humor que essa mordomia chega em breve. Não recomendar filme." },
     { "frase": "obrigado, você ajudou muito!",
-      "expectativa": "Agradecer de volta em 1 frase, tom de mordomo. Sem discurso." }
+      "expectativa": "Agradecer de volta em 1 frase, tom de mordomo. Sem discurso." },
+    { "frase": "me lembra todo dia 5 às 9h de pagar o condomínio",
+      "expectativa": "CRIAR o lembrete recorrente mensal e confirmar. Jamais dizer que recorrência não é suportada — é. (Regressão real: a docstring da tool dizia 'não suportado' e o agente recusava sem tentar.)" },
+    { "frase": "me lembra toda sexta de comprar pão",
+      "expectativa": "Recorrência reconhecida mas SEM hora: perguntar que horas, sem criar nada." }
   ]
 }
