@@ -34,6 +34,9 @@ _SUBSTITUICOES: list[tuple[str, str]] = [
     # Humanos divergem nisso; escolhemos a leitura mais literal e a documentamos
     # aqui em vez de deixar o dateparser decidir sozinho.
     (r"\bque vem\b", ""),
+    # "12h do dia 14" (caso real, 11/08): hora ANTES do dia derruba o parser —
+    # reordena para "dia 14 às 12h" ANTES do strip de "dia " logo abaixo.
+    (r"\b(?:às\s+)?(\d{1,2}(?::\d{2})?h?s?)\s+do\s+dia\s+(\d{1,2})\b", r"dia \2 às \1"),
     # "dia 5 de outubro" → "5 de outubro" (o "dia" solto atrapalha o parser).
     (r"\bdia\s+(?=\d)", ""),
     # "dia 21 desse mês" (caso real do Davi, 11/08): o dateparser não conhece

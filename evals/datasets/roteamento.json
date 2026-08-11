@@ -25,6 +25,8 @@
     { "frase": "me indica um filme pra amanhã", "esperado": "responder", "tipo": "dificil", "nota": "usa capacidade que NÃO existe ≠ propor que exista — segue fora de escopo" },
     { "frase": "deu erro quando pedi pra criar o lembrete ontem", "esperado": "pedido", "nota": "relato de problema → issue problema-reportado" },
     { "frase": "você entendeu tudo errado no meu áudio", "esperado": "pedido", "tipo": "dificil" },
+    { "frase": "quero que o CPF seja sempre gravado no formato 000.000.000-00", "esperado": "pedido", "nota": "CASO REAL (esposa, 11/08): preferência de comportamento foi para responder" },
+    { "frase": "me manda a carteirinha de saúde do Davi", "esperado": "cofre", "nota": "CASO REAL (esposa, 11/08): foi para responder e o documento nunca saiu" },
     {
       "frase": "cancela o segundo",
       "esperado": "lembretes",

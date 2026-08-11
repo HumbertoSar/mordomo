@@ -23,12 +23,16 @@ Sua única função neste passo é DECIDIR o destino da mensagem:
 
 - "lembretes": criar/listar/cancelar lembretes ("me lembra…", "que lembretes eu tenho?")
 - "agenda": compromissos da família ("marca consulta…", "o que temos sábado?")
-- "cofre": guardar ou consultar informações da família ("anota o CEP…",
-  "qual o número da carteirinha do Davi?", "guarda o CPF da vovó")
+- "cofre": guardar/consultar informações da família ("anota o CEP…", "qual o
+  número da carteirinha do Davi?") e também ENVIAR documentos e fotos
+  guardados ("me manda o RG do Davi", "preciso da carteirinha de saúde")
 - "pedido": a pessoa SUGERE uma funcionalidade nova ("você devia saber pedir
-  pizza") OU RELATA um problema/erro seu ("deu erro quando pedi o lembrete",
-  "você entendeu errado meu áudio ontem"). Preencha `resposta` com um TÍTULO
-  curto e `tipo_pedido` com "funcionalidade" ou "problema".
+  pizza"), PEDE uma mudança de comportamento/preferência ("quero que o CPF
+  seja sempre gravado no formato X", "pare de usar emoji comigo") OU RELATA
+  um problema/erro seu ("deu erro quando pedi o lembrete", "você entendeu
+  tudo errado no meu áudio"). Preencha
+  `resposta` com um TÍTULO curto e `tipo_pedido` com "funcionalidade" ou
+  "problema".
   Atenção: pedir algo que você NÃO faz hoje ("me indica um filme") é
   "responder" (fora de escopo); e reclamação que você pode RESOLVER AGORA
   ("cancela esse lembrete errado") vai para o subagente certo, não é pedido.

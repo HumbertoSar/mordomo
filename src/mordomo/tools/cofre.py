@@ -9,7 +9,7 @@ Regras que NÃO se repetem nos outros módulos:
 
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
-from sqlalchemy import or_, select
+from sqlalchemy import and_, or_, select
 
 from ..analytics import emitir_de
 from ..db.models import VaultItem
@@ -20,6 +20,20 @@ from ..privacidade import registrar_segredo
 def _visiveis(member_id: int):
     """Itens que este membro pode ler: compartilhados + os próprios."""
     return or_(VaultItem.compartilhado.is_(True), VaultItem.dono == member_id)
+
+
+_STOPWORDS = {"de", "do", "da", "dos", "das", "e", "o", "a", "os", "as", "meu", "minha"}
+
+
+def _por_palavras(coluna, termo: str):
+    """Busca por PALAVRAS, não por substring: "carteirinha de saúde do Davi"
+    tem que achar "Carteirinha do Plano de Saúde Davi" (caso real, 11/08 — o
+    ilike do termo inteiro exigia as palavras na MESMA ordem e vizinhança).
+    Cada palavra significativa vira um ILIKE; o AND exige todas, em qualquer ordem."""
+    palavras = [p for p in termo.strip().split() if p.lower() not in _STOPWORDS]
+    if not palavras:
+        return coluna.ilike(f"%{termo.strip()}%")
+    return and_(*[coluna.ilike(f"%{p}%") for p in palavras])
 
 
 @tool
@@ -67,7 +81,7 @@ async def buscar_info(termo: str, config: RunnableConfig) -> str:
     async with Sessao() as s:
         res = await s.execute(
             select(VaultItem)
-            .where(VaultItem.chave.ilike(f"%{termo.strip()}%"), _visiveis(member_id))
+            .where(_por_palavras(VaultItem.chave, termo), _visiveis(member_id))
             .order_by(VaultItem.chave)
             .limit(10)
         )
@@ -132,7 +146,7 @@ async def buscar_documento(termo: str, config: RunnableConfig) -> str:
         res = await s.execute(
             select(Document)
             .where(
-                Document.nome.ilike(f"%{termo.strip()}%"),
+                _por_palavras(Document.nome, termo),
                 or_(Document.compartilhado.is_(True), Document.dono == member_id),
             )
             .order_by(Document.nome)

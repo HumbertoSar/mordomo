@@ -20,6 +20,34 @@ from .anexos import coletar
 log = logging.getLogger(__name__)
 
 
+_TOOLS_MUTANTES = (
+    "criar_lembrete", "cancelar_lembrete", "criar_evento", "guardar_info", "apagar_info"
+)
+
+
+async def _turno_teve_efeito(turn_id: str) -> bool:
+    """O funil como fonte de verdade: alguma tool MUTANTE concluiu ok neste turno?"""
+    from sqlalchemy import func, select
+
+    from ..db.models import ProductEvent
+    from ..db.session import Sessao
+
+    try:
+        async with Sessao() as s:
+            res = await s.execute(
+                select(func.count()).where(
+                    ProductEvent.turn_id == turn_id,
+                    ProductEvent.tipo == "tool_result",
+                    ProductEvent.payload["ok"].as_boolean().is_(True),
+                    ProductEvent.payload["tool"].as_string().in_(_TOOLS_MUTANTES),
+                )
+            )
+            return res.scalar_one() > 0
+    except Exception:
+        log.exception("Falha ao checar efeito do turno %s", turn_id)
+        return True
+
+
 def _texto_de(conteudo) -> str:
     """Conteúdo da AIMessage pode ser str ou lista de blocos, conforme o modelo."""
     if isinstance(conteudo, str):
@@ -58,14 +86,35 @@ async def processar_entrada(
 
     inicio = time.perf_counter()
     ok = True
-    try:
-        resultado = await grafo.ainvoke(entrada, cfg)
-        texto = _texto_de(resultado["messages"][-1].content) or "…"
-    except Exception:
-        ok = False
-        log.exception("Erro no grafo (membro %s, turno %s)", membro.id, turn_id)
-        await emitir_de(cfg, "error", onde="grafo")
-        texto = "Ops, tropecei aqui do meu lado. 😅 Pode repetir, por favor?"
+    for tentativa in (1, 2):
+        try:
+            resultado = await grafo.ainvoke(entrada, cfg)
+            texto = _texto_de(resultado["messages"][-1].content) or "…"
+            ok = True
+            break
+        except Exception:
+            ok = False
+            log.exception(
+                "Erro no grafo (membro %s, turno %s, tentativa %d)",
+                membro.id, turn_id, tentativa,
+            )
+            # Visto em produção (11/08): OpenRouter devolve 200 com choices=None
+            # e o parse explode — o retry do cliente não cobre erro de PARSE.
+            # Repetir o turno é seguro APENAS se nenhuma tool mutante rodou
+            # (senão duplicaríamos lembrete/evento) — e quem sabe disso é o
+            # próprio funil.
+            efeito = await _turno_teve_efeito(turn_id)
+            await emitir_de(cfg, "error", onde="grafo", tentativa=tentativa, efeito=efeito)
+            if tentativa == 1 and not efeito:
+                continue
+            if efeito:
+                texto = (
+                    "Fiz o que você pediu, mas tropecei ao redigir a resposta. 😅 "
+                    "Pode conferir com um \"que lembretes eu tenho?\" ou similar."
+                )
+            else:
+                texto = "Ops, tropecei aqui do meu lado. 😅 Pode repetir, por favor?"
+            break
 
     # O evento que sustenta quase todo o dashboard: uma linha por turno, com o
     # tempo que o usuário REALMENTE esperou — não o tempo de uma chamada de LLM.
