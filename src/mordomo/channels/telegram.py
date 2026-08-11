@@ -16,11 +16,12 @@ import logging
 from datetime import UTC, datetime
 
 from aiogram import Bot, Dispatcher, F
-from aiogram.filters import CommandStart
+from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from ..analytics import emitir
 from ..config import settings
+from ..convites import VALIDADE_DIAS, criar_convite, usar_convite
 from ..core.pipeline import processar_entrada
 from ..identity import identidade_do_membro, resolver_membro
 from ..notify import registrar_adapter
@@ -58,11 +59,62 @@ class TelegramAdapter:
     def _registrar_handlers(self) -> None:
         @self.dp.message(CommandStart())
         async def start(msg: Message) -> None:
+            membro = await resolver_membro("telegram", str(msg.from_user.id))
+            if membro is None:
+                await msg.answer(
+                    "Olá! Sou o mordomo da família. 🤵\n"
+                    "Ainda não nos conhecemos — peça um código de convite a quem "
+                    "administra e mande: /vincular CÓDIGO"
+                )
+                return
             await msg.answer(
-                "Às ordens! Sou o mordomo da família. 🤵\n"
+                f"Às ordens, {membro.nome}! 🤵\n"
                 "Posso criar lembretes (\"me lembra amanhã às 8h de…\") e cuidar "
                 "da agenda (\"o que temos sábado?\")."
             )
+
+        @self.dp.message(Command("convidar"))
+        async def convidar(msg: Message, command: CommandObject) -> None:
+            membro = await resolver_membro("telegram", str(msg.from_user.id))
+            if membro is None:
+                await msg.answer("Ainda não nos conhecemos — convites são só para a família. 🤝")
+                return
+            partes = (command.args or "").split()
+            papel = "adulto"
+            if partes and partes[-1].lower() in ("adulto", "crianca", "criança"):
+                papel = "crianca" if partes.pop().lower().startswith("crian") else "adulto"
+            nome = " ".join(partes).strip()
+            if not nome:
+                await msg.answer(
+                    "Uso: /convidar NOME [adulto|crianca]\n"
+                    "Ex.: /convidar Maria adulto · /convidar João crianca"
+                )
+                return
+            codigo = await criar_convite(membro, nome, papel)
+            if codigo is None:
+                await msg.answer("Convites são coisa de adulto por aqui. 😉")
+                return
+            await msg.answer(
+                f"Convite criado para {nome} ({papel}), válido por {VALIDADE_DIAS} dias.\n"
+                f"Peça para a pessoa me mandar:\n\n/vincular {codigo}"
+            )
+
+        @self.dp.message(Command("vincular"))
+        async def vincular(msg: Message, command: CommandObject) -> None:
+            codigo = (command.args or "").strip()
+            if not codigo:
+                await msg.answer("Uso: /vincular CÓDIGO (peça o código a quem administra o mordomo).")
+                return
+            membro, motivo = await usar_convite(codigo, "telegram", str(msg.from_user.id))
+            respostas = {
+                "ok": f"Bem-vindo(a) à família, {membro.nome if membro else ''}! 🤵 "
+                      "Já pode me pedir lembretes e consultar a agenda.",
+                "ja_cadastrado": f"Nós já nos conhecemos, {membro.nome if membro else ''}! Às ordens.",
+                "codigo_invalido": "Esse código não confere. Confira com quem convidou você. 🤔",
+                "ja_usado": "Esse código já foi usado. Peça um novo convite.",
+                "expirado": "Esse código expirou. Peça um novo convite.",
+            }
+            await msg.answer(respostas[motivo])
 
         @self.dp.message(F.voice | F.audio)
         async def audio(msg: Message) -> None:
@@ -124,8 +176,8 @@ class TelegramAdapter:
             await emitir("unknown_user", canal="telegram", external_id=str(user_id))
             await self.bot.send_message(
                 chat_id,
-                "Ainda não nos conhecemos! Peça a quem administra o mordomo "
-                "para cadastrar você (scripts/seed_familia.py). 🤝",
+                "Ainda não nos conhecemos! Peça um código de convite a quem "
+                "administra o mordomo e mande: /vincular CÓDIGO 🤝",
             )
             return
 

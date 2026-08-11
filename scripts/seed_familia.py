@@ -1,4 +1,6 @@
-"""Cadastra membros da família (MVP: sem fluxo /vincular ainda — fase 2).
+"""Cadastra membros da família DIRETO no banco — hoje só necessário para o
+PRIMEIRO membro (bootstrap). Os demais entram pelo chat: um adulto manda
+/convidar NOME [papel] e a pessoa responde /vincular CÓDIGO.
 
 Como descobrir o telegram_id de cada pessoa: peça para ela mandar /start ao
 bot e veja o aviso de "unknown_user" no log/tabela product_events, ou use o

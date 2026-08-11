@@ -108,7 +108,8 @@ recusa simpática).
 - [ ] Subagente Curador (TMDB + onde assistir no BR, perfil por membro)
 - [ ] Subagente Mensageiro (Gmail) com `interrupt()` — HITL de verdade
 - [ ] Recorrência de lembretes ("todo dia 5") + briefing matinal (job proativo)
-- [ ] `/vincular` (onboarding sem seed script) + permissões por papel de fato
+- [x] `/vincular` (onboarding sem seed script) — /convidar gera código (só
+      adulto), /vincular consome; quem convida decide o papel do convidado
 - [ ] Google Calendar no lugar da tabela própria — decidir ADR-004 (nativa vs. MCP)
 - [ ] Datasets → Langfuse Datasets/Experiments; simulador de personas (OpenEvals)
 - [ ] Fase 3 WhatsApp: pywa + FastAPI, checklist da seção 4.4 do doc v2

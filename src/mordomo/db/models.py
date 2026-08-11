@@ -71,6 +71,26 @@ class FamilyEvent(Base):
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=agora_utc)
 
 
+class InviteCode(Base):
+    """Convite de vínculo (/convidar → /vincular): onboarding SEM seed script.
+
+    O código carrega nome e papel decididos por quem convidou — o convidado não
+    escolhe o próprio papel (permissão nasce na borda, ADR-003). Uso único, com
+    validade; o código é o segredo, então curto mas não adivinhável."""
+
+    __tablename__ = "invite_codes"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    codigo: Mapped[str] = mapped_column(String(16), unique=True)
+    nome: Mapped[str] = mapped_column(String(80))          # nome do futuro membro
+    papel: Mapped[str] = mapped_column(String(20))         # adulto | crianca
+    criado_por: Mapped[int] = mapped_column(ForeignKey("members.id"))
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=agora_utc)
+    expira_em: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    usado_por: Mapped[int | None] = mapped_column(ForeignKey("members.id"), nullable=True)
+    usado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 # ── Analytics (eventos de produto) ───────────────────────────────────────
 
 
