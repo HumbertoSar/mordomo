@@ -49,20 +49,20 @@ async def test_cofre_recusa_grupo_antes_do_llm():
 
     # Sentinela: se o guard falhar e o nó tentar criar/invocar o agente real,
     # o teste quebra aqui — não em rede (regra nº 7).
-    original = agente_cofre._agente
+    original = agente_cofre._no_cofre_base.agente
 
     class _Explode:
         async def ainvoke(self, *a, **k):
             raise AssertionError("cofre invocou o LLM numa conversa de grupo")
 
-    agente_cofre._agente = _Explode()
+    agente_cofre._no_cofre_base.agente = _Explode()
     try:
         cfg = {"configurable": {"member_id": 4, "session_id": "g777:t",
                                 "turn_id": "t-cofre-grupo", "grupo_id": "777"}}
         resultado = await agente_cofre.no_cofre({"messages": []}, cfg)
         assert "privado" in resultado["messages"][-1].content
     finally:
-        agente_cofre._agente = original
+        agente_cofre._no_cofre_base.agente = original
 
     async with Sessao() as s:
         res = await s.execute(
@@ -82,8 +82,8 @@ async def test_cofre_atende_normalmente_no_privado():
 
             return {"messages": [*entrada["messages"], AIMessage("do cofre: 04538-132")]}
 
-    original = agente_cofre._agente
-    agente_cofre._agente = _AgenteFake()
+    original = agente_cofre._no_cofre_base.agente
+    agente_cofre._no_cofre_base.agente = _AgenteFake()
     try:
         from langchain_core.messages import HumanMessage
 
@@ -93,7 +93,7 @@ async def test_cofre_atende_normalmente_no_privado():
         )
         assert "04538-132" in resultado["messages"][-1].content
     finally:
-        agente_cofre._agente = original
+        agente_cofre._no_cofre_base.agente = original
 
 
 def test_config_privada_continua_por_membro():

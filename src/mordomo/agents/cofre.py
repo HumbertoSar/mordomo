@@ -3,12 +3,10 @@ recorrente). O dado mais sensível do sistema: ver ADR-005 e tools/cofre.py."""
 
 from langchain_core.messages import AIMessage
 
-from ..analytics import emitir_de, uso_de
-from ..config import settings
-from ..core.contexto import janela
-from ..core.llm import chat_model, criar_agente
+from ..analytics import emitir_de
 from ..core.state import EstadoMordomo
 from ..tools.cofre import TOOLS_COFRE
+from ._base import NoSubagente
 
 PROMPT_COFRE = """Você é o guardião do COFRE do Mordomo da Família — informações
 que a família consulta sempre: CEP, números de documento, carteirinha do plano,
@@ -28,14 +26,7 @@ Regras:
 - Respostas curtas, tom de mordomo discreto (é um cofre!), formato WhatsApp.
 """
 
-_agente = None
-
-
-def agente_cofre():
-    global _agente
-    if _agente is None:
-        _agente = criar_agente(chat_model(settings.model_agente), TOOLS_COFRE, PROMPT_COFRE)
-    return _agente
+_no_cofre_base = NoSubagente("cofre", TOOLS_COFRE, PROMPT_COFRE)
 
 
 async def no_cofre(state: EstadoMordomo, config) -> dict:
@@ -47,13 +38,4 @@ async def no_cofre(state: EstadoMordomo, config) -> dict:
         return {"messages": [AIMessage(
             "Assunto de cofre é só no privado — me chame lá que eu te atendo. 🤫"
         )]}
-    # Janela (ADR-007) — ver nota em agents/lembretes.py.
-    entrada = janela(state["messages"])
-    anteriores = len(entrada)
-    resultado = await agente_cofre().ainvoke({"messages": entrada}, config)
-
-    novas = resultado["messages"][anteriores:] or resultado["messages"][-1:]
-    if (uso := uso_de(novas)) is not None:
-        await emitir_de(config, "llm_usage", no="cofre", **uso)
-
-    return {"messages": [resultado["messages"][-1]]}
+    return await _no_cofre_base(state, config)

@@ -89,7 +89,7 @@ async def test_caminho_subagente_flui_ate_a_resposta(monkeypatch):
         "mordomo.agents.supervisor.chat_model", lambda *a, **k: _ModeloFalso(_roteador)
     )
     monkeypatch.setattr(
-        "mordomo.agents.lembretes._agente", _AgenteFalso("Lembrete #7 criado!")
+        "mordomo.agents.lembretes.no_lembretes.agente", _AgenteFalso("Lembrete #7 criado!")
     )
     grafo = build_graph()
     resultado = await grafo.ainvoke(
