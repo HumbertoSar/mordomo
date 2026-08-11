@@ -14,6 +14,10 @@
     { "frase": "me indica um filme pra hoje à noite", "esperado": "responder", "nota": "Curador chega na fase 2 — por ora é fora de escopo" },
     { "frase": "manda um email pra escola avisando que o João faltou", "esperado": "responder", "nota": "Mensageiro chega na fase 2" },
     { "frase": "marca aí", "esperado": "responder", "tipo": "dificil", "nota": "ambíguo de verdade → pedir esclarecimento" },
+    { "frase": "anota aí o CEP da nossa casa: 22041-011", "esperado": "cofre", "nota": "subagente novo entra com casos no MESMO commit (regra do CLAUDE.md)" },
+    { "frase": "qual o número da carteirinha do plano do Davi?", "esperado": "cofre" },
+    { "frase": "guarda o CPF da vovó pra mim", "esperado": "cofre" },
+    { "frase": "o que tem guardado no cofre?", "esperado": "cofre" },
     {
       "frase": "cancela o segundo",
       "esperado": "lembretes",

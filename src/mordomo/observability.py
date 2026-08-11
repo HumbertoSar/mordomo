@@ -33,10 +33,14 @@ def langfuse_callbacks() -> list:
             # os.environ — ninguém chama load_dotenv aqui. Se deixássemos o SDK se
             # autoconfigurar pelo ambiente, ele não acharia credencial nenhuma e os
             # traces sumiriam EM SILÊNCIO. Por isso a inicialização é explícita.
+            from .privacidade import mascarar
+
             Langfuse(
                 public_key=settings.langfuse_public_key,
                 secret_key=settings.langfuse_secret_key,
                 host=settings.langfuse_host,
+                # ADR-005: valores do Cofre nunca chegam ao trace
+                mask=mascarar,
             )
             _handler = CallbackHandler()
             log.info("Langfuse ligado (%s)", settings.langfuse_host)

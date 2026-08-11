@@ -75,6 +75,27 @@ class FamilyEvent(Base):
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=agora_utc)
 
 
+class VaultItem(Base):
+    """Cofre da família: dado estruturado que se consulta sempre (CEP, número
+    de documento, carteirinha do plano…).
+
+    `compartilhado=True` (padrão) = a família toda lê — cofre de família é
+    para servir a família. False = só o dono. O VALOR nunca aparece em
+    product_events nem nos traces (ADR-005): payloads levam chave e id."""
+
+    __tablename__ = "vault_items"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    chave: Mapped[str] = mapped_column(String(120))       # "CEP de casa", "RG do Davi"
+    valor: Mapped[str] = mapped_column(String(500))
+    dono: Mapped[int] = mapped_column(ForeignKey("members.id"))
+    compartilhado: Mapped[bool] = mapped_column(default=True)
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=agora_utc)
+    atualizado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=agora_utc, onupdate=agora_utc
+    )
+
+
 class InviteCode(Base):
     """Convite de vínculo (/convidar → /vincular): onboarding SEM seed script.
 
