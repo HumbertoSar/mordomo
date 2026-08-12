@@ -183,6 +183,17 @@ def montar_html(d: dict) -> str:
 
     p95_por_dia = {k: round(v / 1000, 1) for k, v in (t.get("p95_por_dia") or {}).items() if v}
 
+    # Espera de fila: só aparece quando há turnos com o campo medido (eventos
+    # de antes da instrumentação não têm) — ausência de dado não vira "0s".
+    fila = ""
+    if t.get("espera_p95_ms") is not None:
+        fila = (
+            f"<p class='vazio'>Espera na fila (turno aguardando o anterior da mesma conversa): "
+            f"p95 {_ms(t['espera_p95_ms'])} · máx {_ms(t['espera_max_ms'])} · "
+            f"{t['turnos_que_esperaram']} de {t['turnos_com_espera_medida']} turno(s) esperaram mais de 1s "
+            f"— essa espera já está incluída na latência acima.</p>"
+        )
+
     custo_por_no = sorted(
         ((no, round(v["usd"], 5)) for no, v in c["por_no"].items()),
         key=lambda x: -x[1],
@@ -190,7 +201,9 @@ def montar_html(d: dict) -> str:
     tabela_no = "".join(
         f"<tr><td>{html.escape(no)}</td><td>{v['modelo'] or '—'}</td>"
         f"<td class='num'>{v['chamadas']}</td><td class='num'>{v['input']:,}</td>"
-        f"<td class='num'>{v['output']:,}</td><td class='num'>US$ {v['usd']:.5f}</td></tr>"
+        f"<td class='num'>{v['output']:,}</td><td class='num'>US$ {v['usd']:.5f}</td>"
+        f"<td class='num'>{_ms(v.get('lat_p50_ms'))}</td>"
+        f"<td class='num'>{_ms(v.get('lat_p95_ms'))}</td></tr>"
         for no, v in sorted(c["por_no"].items(), key=lambda x: -x[1]["usd"])
     )
 
@@ -396,14 +409,15 @@ def montar_html(d: dict) -> str:
     {_histograma_latencia(d["turnos"]["latencias_ms"])}
     <p class="vazio">p50 {_ms(d["turnos"]["p50_ms"])} · p95 {_ms(d["turnos"]["p95_ms"])} ·
        máx {_ms(d["turnos"]["max_ms"])}</p>
+    {fila}
   </div>
 
-  <h2>Custo por nó — rotear vs. executar</h2>
+  <h2>Custo e latência por nó — rotear vs. executar</h2>
   <div class="card">
     {_barras_horizontais(custo_por_no, " USD")}
     <div class="rolar"><table>
-      <tr><th>nó</th><th>modelo</th><th>chamadas</th><th>tokens in</th><th>tokens out</th><th>custo</th></tr>
-      {tabela_no or "<tr><td colspan='6' class='vazio'>Nenhuma chamada de LLM no período.</td></tr>"}
+      <tr><th>nó</th><th>modelo</th><th>chamadas</th><th>tokens in</th><th>tokens out</th><th>custo</th><th>p50</th><th>p95</th></tr>
+      {tabela_no or "<tr><td colspan='8' class='vazio'>Nenhuma chamada de LLM no período.</td></tr>"}
     </table></div>
     {aviso_preco}
   </div>

@@ -3,6 +3,7 @@ output decide o destino e `Command(goto=...)` faz o handoff. Mais didático que
 o pacote langgraph-supervisor; a acurácia deste roteamento é o eval nº 2
 (evals/datasets/roteamento.json)."""
 
+import time
 from typing import Literal
 
 from langchain_core.messages import AIMessage, SystemMessage
@@ -85,11 +86,13 @@ async def no_supervisor(
     )
     # Janela (ADR-007): rotear entre três destinos não precisa da conversa
     # inteira — e sem isto a entrada crescia ~72 tokens/turno, para sempre.
+    inicio = time.perf_counter()
     saida = await modelo.ainvoke([sistema, *janela(state["messages"])], config)
+    latencia_ms = round((time.perf_counter() - inicio) * 1000)
 
     bruto = saida.get("raw") if isinstance(saida, dict) else None
     if (uso := uso_de([bruto] if bruto is not None else [])) is not None:
-        await emitir_de(config, "llm_usage", no="supervisor", **uso)
+        await emitir_de(config, "llm_usage", no="supervisor", latencia_ms=latencia_ms, **uso)
 
     decisao: Decisao | None = saida.get("parsed") if isinstance(saida, dict) else saida
     if decisao is None:

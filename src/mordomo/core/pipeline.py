@@ -97,6 +97,11 @@ async def processar_entrada(
     inicio = time.perf_counter()
     ok = True
     async with _lock_da_thread(cfg["configurable"]["thread_id"]):
+        # Quanto deste turno foi FILA (esperando o turno anterior da mesma
+        # thread soltar o lock). Vai separado no turn_completed para o
+        # dashboard distinguir "o LLM foi lento" de "as mensagens se
+        # atropelaram" — a latência total não conta essa diferença.
+        espera_fila_ms = round((time.perf_counter() - inicio) * 1000)
         await emitir_de(
             cfg,
             "message_received",
@@ -142,6 +147,7 @@ async def processar_entrada(
         "turn_completed",
         ok=ok,
         latencia_ms=round((time.perf_counter() - inicio) * 1000),
+        espera_fila_ms=espera_fila_ms,
         tamanho_resposta=len(texto),
     )
 

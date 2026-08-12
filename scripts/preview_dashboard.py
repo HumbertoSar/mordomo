@@ -64,7 +64,8 @@ async def semear() -> None:
             ev("orchestrator_decision", dias_atras, t, m, destino=destino)
             ev("llm_usage", dias_atras, t, m, no="supervisor",
                modelo="anthropic/claude-haiku-4.5",
-               input_tokens=random.randint(400, 1200), output_tokens=random.randint(20, 60))
+               input_tokens=random.randint(400, 1200), output_tokens=random.randint(20, 60),
+               latencia_ms=random.randint(700, 3500))
             if destino not in ("responder",):
                 tool = {"lembretes": "criar_lembrete", "agenda": "criar_evento",
                         "cofre": "guardar_info"}[destino]
@@ -77,9 +78,15 @@ async def semear() -> None:
                 ev("llm_usage", dias_atras, t, m, no=destino,
                    modelo="anthropic/claude-sonnet-4.5",
                    input_tokens=random.randint(1200, 4000),
-                   output_tokens=random.randint(80, 300))
+                   output_tokens=random.randint(80, 300),
+                   latencia_ms=random.randint(2000, 9000))
+            # espera_fila_ms: a maioria não espera; uns poucos pegam fila longa
+            # (mensagens da mesma conversa se atropelando) — exercita a linha
+            # de espera de fila da seção Observabilidade
+            espera = 0 if random.random() > 0.2 else random.randint(1200, 25000)
             ev("turn_completed", dias_atras, t, m, ok=random.random() > 0.03,
-               latencia_ms=max(800.0, random.gauss(4200, 2600)))
+               latencia_ms=max(800.0, random.gauss(4200, 2600)) + espera,
+               espera_fila_ms=espera)
             ev("message_sent", dias_atras, t, m, canal="telegram", tamanho=120)
 
     # ── produto: cofre, pedidos (1 issue falha!), curadoria, convites ─────

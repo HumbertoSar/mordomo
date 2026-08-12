@@ -101,6 +101,15 @@ async def turnos(desde: datetime) -> dict:
         if e.payload:
             lat_por_dia[_dia(e.ts)].append(float(e.payload.get("latencia_ms", 0)))
 
+    # Espera de FILA (lock por thread): a fatia da latência que não é LLM, é
+    # mensagem se atropelando na mesma conversa. Eventos antigos não têm o
+    # campo — ficam de fora em vez de virar zero e achatar o percentil.
+    esperas = [
+        float(e.payload["espera_fila_ms"])
+        for e in eventos
+        if e.payload and e.payload.get("espera_fila_ms") is not None
+    ]
+
     return {
         "total": len(eventos),
         "falhos": falhos,
@@ -112,6 +121,10 @@ async def turnos(desde: datetime) -> dict:
         "membros_por_dia": {d: len(m) for d, m in sorted(membros_por_dia.items())},
         "latencias_ms": latencias,
         "p95_por_dia": {d: percentil(v, 0.95) for d, v in sorted(lat_por_dia.items())},
+        "espera_p95_ms": percentil(esperas, 0.95),
+        "espera_max_ms": max(esperas) if esperas else None,
+        "turnos_que_esperaram": sum(1 for v in esperas if v > 1000),
+        "turnos_com_espera_medida": len(esperas),
     }
 
 
@@ -156,7 +169,7 @@ async def custo(desde: datetime) -> dict:
     ROTEAR versus quanto custa EXECUTAR."""
     eventos = await _eventos(desde, ("llm_usage",))
     por_no: dict[str, dict] = defaultdict(
-        lambda: {"chamadas": 0, "input": 0, "output": 0, "usd": 0.0}
+        lambda: {"chamadas": 0, "input": 0, "output": 0, "usd": 0.0, "latencias": []}
     )
     sem_preco: set[str] = set()
 
@@ -169,12 +182,21 @@ async def custo(desde: datetime) -> dict:
         linha["input"] += entrada
         linha["output"] += saida
         linha["modelo"] = p.get("modelo")
+        if p.get("latencia_ms") is not None:  # eventos antigos não têm o campo
+            linha["latencias"].append(float(p["latencia_ms"]))
 
         usd = custo_usd(p.get("modelo"), entrada, saida)
         if usd is None:
             sem_preco.add(p.get("modelo") or "?")
         else:
             linha["usd"] += usd
+
+    # A quebra que decide ONDE otimizar: p50/p95 por nó — supervisor lento é
+    # roteamento caro; subagente lento é execução (loop ReAct) cara.
+    for linha in por_no.values():
+        lat = linha.pop("latencias")
+        linha["lat_p50_ms"] = percentil(lat, 0.50)
+        linha["lat_p95_ms"] = percentil(lat, 0.95)
 
     total = sum(v["usd"] for v in por_no.values())
     return {

@@ -12,6 +12,8 @@ cria subagente novo com 3 linhas em vez de um arquivo copiado.
 Testes injetam um agente falso pelo atributo `agente` da instância
 (ex.: `no_lembretes.agente = _AgenteFalso(...)` — ver tests/test_grafo.py)."""
 
+import time
+
 from ..analytics import emitir_de, uso_de
 from ..config import settings
 from ..core.contexto import janela
@@ -34,10 +36,14 @@ class NoSubagente:
     async def __call__(self, state: EstadoMordomo, config) -> dict:
         entrada = janela(state["messages"])
         anteriores = len(entrada)
+        # A latência aqui é do NÓ inteiro (loop ReAct: LLM + tools + LLM…) —
+        # é o bloco que o usuário espera, e o que se compara com o supervisor.
+        inicio = time.perf_counter()
         resultado = await self._agente_real().ainvoke({"messages": entrada}, config)
+        latencia_ms = round((time.perf_counter() - inicio) * 1000)
 
         novas = resultado["messages"][anteriores:] or resultado["messages"][-1:]
         if (uso := uso_de(novas)) is not None:
-            await emitir_de(config, "llm_usage", no=self.nome, **uso)
+            await emitir_de(config, "llm_usage", no=self.nome, latencia_ms=latencia_ms, **uso)
 
         return {"messages": [resultado["messages"][-1]]}
