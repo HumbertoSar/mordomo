@@ -254,6 +254,88 @@ async def produto(desde: datetime, contagens: dict[str, int] | None = None) -> d
     }
 
 
+async def canais(desde: datetime) -> dict:
+    """Adoção por canal + a observabilidade que só o WhatsApp entrega.
+
+    Duas perguntas que este bloco responde e nenhuma outra query respondia:
+
+      1. **A migração está andando?** `canal` viaja em message_received desde
+         o dia 1, então a comparação Telegram × WhatsApp sai de graça — é o
+         placar da semana de canário.
+      2. **A mensagem CHEGOU e foi LIDA?** No Telegram isso não existe: enviar
+         era o fim da história. O WhatsApp devolve sent → delivered → read (ou
+         failed) por wamid, o que dá taxa de entrega, taxa de leitura e o tempo
+         até a leitura — a métrica mais próxima de "a família está usando".
+
+    Um wamid gera VÁRIOS eventos de status (um por etapa); por isso tudo aqui
+    conta wamids distintos, não linhas."""
+    recebidas = await _eventos(desde, ("message_received",))
+    enviadas = await _eventos(desde, ("message_sent",))
+    statuses = await _eventos(desde, ("message_status",))
+    proativos = await _eventos(desde, ("proactive_channel",))
+
+    por_canal: dict[str, dict] = defaultdict(
+        lambda: {"recebidas": 0, "enviadas": 0, "membros": set()}
+    )
+    por_dia: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    for e in recebidas:
+        canal = (e.payload or {}).get("canal") or "?"
+        por_canal[canal]["recebidas"] += 1
+        por_canal[canal]["membros"].add(e.member_id)
+        por_dia[_dia(e.ts)][canal] += 1
+    for e in enviadas:
+        por_canal[(e.payload or {}).get("canal") or "?"]["enviadas"] += 1
+
+    # wamid → {status: momento (relógio da Meta)}
+    etapas: dict[str, dict[str, int | None]] = defaultdict(dict)
+    for e in statuses:
+        p = e.payload or {}
+        if p.get("wamid") and p.get("status"):
+            etapas[p["wamid"]][p["status"]] = p.get("ts_canal")
+
+    total = len(etapas)
+    entregues = sum(1 for v in etapas.values() if "delivered" in v or "read" in v)
+    lidas = sum(1 for v in etapas.values() if "read" in v)
+    falhas = sum(1 for v in etapas.values() if "failed" in v)
+    # Só quando os DOIS carimbos existem: sem isso a mediana mediria ausência.
+    ate_leitura = [
+        float(v["read"] - v["sent"])
+        for v in etapas.values()
+        if isinstance(v.get("read"), int) and isinstance(v.get("sent"), int)
+        and v["read"] >= v["sent"]
+    ]
+    erros = Counter(
+        (e.payload or {}).get("erro") or "sem código"
+        for e in statuses
+        if (e.payload or {}).get("status") == "failed"
+    )
+
+    return {
+        "por_canal": {
+            canal: {"recebidas": v["recebidas"], "enviadas": v["enviadas"],
+                    "membros": len([m for m in v["membros"] if m])}
+            for canal, v in sorted(por_canal.items())
+        },
+        "recebidas_por_dia": {d: dict(v) for d, v in sorted(por_dia.items())},
+        "whatsapp": {
+            "com_status": total,
+            "entregues": entregues,
+            "lidas": lidas,
+            "falhas": falhas,
+            "taxa_entrega": (entregues / total) if total else None,
+            "taxa_leitura": (lidas / entregues) if entregues else None,
+            "p50_ate_leitura_s": percentil(ate_leitura, 0.50),
+            "p95_ate_leitura_s": percentil(ate_leitura, 0.95),
+            "erros": erros.most_common(5),
+            # free_form × template: a partir de 10/2026 as DUAS são cobradas,
+            # e a de template já é hoje — esta quebra vira linha de custo.
+            "proativos_por_modo": Counter(
+                (e.payload or {}).get("modo") or "?" for e in proativos
+            ).most_common(),
+        },
+    }
+
+
 async def resumo(desde: datetime, ate: datetime | None = None) -> dict:
     """Os totais que os KPIs comparam com o período anterior — só o essencial,
     para não pagar duas vezes o preço de `coletar` inteiro."""
@@ -412,6 +494,7 @@ async def coletar(dias: int = 30) -> dict:
         "desde": desde,
         "gerado_em": datetime.now(_tz()),
         "turnos": await turnos(desde),
+        "canais": await canais(desde),
         "roteamento": await roteamento(desde),
         "ferramentas": await ferramentas(desde),
         "custo": await custo(desde),

@@ -194,6 +194,47 @@ def montar_html(d: dict) -> str:
             f"— essa espera já está incluída na latência acima.</p>"
         )
 
+    # ── Canais (a migração Telegram → WhatsApp, medida) ──────────────────
+    ca = d.get("canais") or {}
+    wa = ca.get("whatsapp") or {}
+    por_canal = ca.get("por_canal") or {}
+
+    def _pct(v):
+        return f"{v:.0%}" if v is not None else "—"
+
+    def _seg(v):
+        return f"{v:.0f}s" if v is not None and v < 90 else (f"{v / 60:.0f}min" if v else "—")
+
+    tabela_canais = "".join(
+        f"<tr><td>{html.escape(canal)}</td><td class='num'>{v['membros']}</td>"
+        f"<td class='num'>{v['recebidas']}</td><td class='num'>{v['enviadas']}</td></tr>"
+        for canal, v in por_canal.items()
+    )
+    # A CURVA DA MIGRAÇÃO: que fatia do que a família falou entrou pelo
+    # WhatsApp, dia a dia. É o número que decide quando o Telegram vira dev.
+    fatia_wa = {}
+    for dia, canais_do_dia in (ca.get("recebidas_por_dia") or {}).items():
+        total_dia = sum(canais_do_dia.values())
+        if total_dia:
+            fatia_wa[dia] = round(100 * canais_do_dia.get("whatsapp", 0) / total_dia)
+
+    kpis_canais = "".join([
+        _kpi("entrega", _pct(wa.get("taxa_entrega")), f"{wa.get('entregues', 0)} de "
+             f"{wa.get('com_status', 0)} mensagens"),
+        _kpi("leitura", _pct(wa.get("taxa_leitura")), "das entregues"),
+        _kpi("até ser lida", _seg(wa.get("p50_ate_leitura_s")), "mediana"),
+        _kpi("falhas de entrega", str(wa.get("falhas", 0)),
+             "Meta recusou", alerta=bool(wa.get("falhas"))),
+    ])
+    erros_wa = "".join(
+        f"<tr><td>{html.escape(str(codigo))}</td><td class='num'>{n}</td></tr>"
+        for codigo, n in (wa.get("erros") or [])
+    )
+    proativos_modo = _barras_horizontais(
+        [(modo, n) for modo, n in (wa.get("proativos_por_modo") or [])]
+    )
+    canal_ligado = bool(wa.get("com_status") or por_canal.get("whatsapp"))
+
     custo_por_no = sorted(
         ((no, round(v["usd"], 5)) for no, v in c["por_no"].items()),
         key=lambda x: -x[1],
@@ -375,6 +416,38 @@ def montar_html(d: dict) -> str:
         ("proativos enviados", d["lembretes"]["proativos_enviados"]),
     ])}
   </div>
+
+  <h1 class="secao">📱 Canais <span class="secao-sub">a migração para o WhatsApp, medida</span></h1>
+  {f'''
+  <div class="kpis">{kpis_canais}</div>
+
+  <h2>Quanto da conversa já entra pelo WhatsApp (% por dia)</h2>
+  <div class="card rolar">{_barras_verticais(fatia_wa, "%")}</div>
+  ''' if canal_ligado else
+  '''<div class="card"><p class="vazio">WhatsApp ainda não recebeu mensagem no
+     período — configure as credenciais (docs/whatsapp-fase3.md) e este bloco
+     passa a mostrar entrega, leitura e a curva da migração.</p></div>'''}
+
+  <h2>Por canal</h2>
+  <div class="card"><table>
+    <tr><th>canal</th><th>membros</th><th>recebidas</th><th>enviadas</th></tr>
+    {tabela_canais or "<tr><td colspan='4' class='vazio'>Nenhuma mensagem no período.</td></tr>"}
+  </table></div>
+
+  {f'''
+  <h2>Proatividade no WhatsApp — livre vs. template</h2>
+  <div class="card">
+    {proativos_modo}
+    <p class="vazio">Fora da janela de 24h só sai template aprovado (pago).
+       A partir de 10/2026 o texto livre dentro da janela também é cobrado —
+       esta quebra é o que vai virar linha de custo.</p>
+  </div>''' if wa.get("proativos_por_modo") else ""}
+
+  {f'''
+  <h2>Entregas recusadas pela Meta</h2>
+  <div class="card"><table>
+    <tr><th>código do erro</th><th>mensagens</th></tr>{erros_wa}
+  </table></div>''' if erros_wa else ""}
 
   <h1 class="secao">📦 Produto <span class="secao-sub">o que existe além da conversa</span></h1>
   <div class="kpis">{kpis_produto}</div>

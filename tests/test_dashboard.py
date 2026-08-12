@@ -7,9 +7,10 @@ from mordomo.reporting import queries
 from mordomo.reporting.dashboard import _delta, _mini_trajetoria, gerar_html
 
 
-async def test_gerar_html_monta_as_quatro_secoes():
+async def test_gerar_html_monta_as_cinco_secoes():
     html = await gerar_html(dias=7)
     assert "Analytics" in html
+    assert "Canais" in html
     assert "Produto" in html
     assert "Observabilidade" in html
     assert "Evaluation" in html
@@ -82,6 +83,38 @@ async def test_produto_agrega_eventos_de_comando_sem_virar_orfao():
 
     # nada disso pode inflar o KPI que vigia a instrumentação
     assert await queries.orfaos(desde) == orfaos_antes
+
+
+async def test_canais_medem_entrega_leitura_e_adocao():
+    """O que só o WhatsApp informa: um wamid gera VÁRIOS statuses, e é a
+    diferença entre os carimbos que vira "tempo até ser lida"."""
+    desde = datetime.now(UTC) - timedelta(hours=1)
+    base = int(datetime.now(UTC).timestamp())
+
+    await emitir("message_received", 1, "1:t", "t-canal-1", canal="whatsapp", tamanho=20)
+    await emitir("message_received", 2, "2:t", "t-canal-2", canal="telegram", tamanho=20)
+    await emitir("message_sent", 1, "1:t", "t-canal-1", canal="whatsapp",
+                 tamanho=80, wamid="wamid.lida")
+    for status, quando in (("sent", base), ("delivered", base + 3), ("read", base + 63)):
+        await emitir("message_status", 1, "1:t", canal="whatsapp", status=status,
+                     wamid="wamid.lida", erro="", ts_canal=quando)
+    # uma que a Meta recusou (fora da janela de 24h sem template: erro 131047)
+    await emitir("message_status", 1, "1:t", canal="whatsapp", status="failed",
+                 wamid="wamid.falha", erro="131047", ts_canal=base)
+    await emitir("proactive_channel", 1, canal="whatsapp", modo="template",
+                 template="lembrete_v1")
+
+    c = await queries.canais(desde)
+    assert c["por_canal"]["whatsapp"]["recebidas"] >= 1
+    assert c["por_canal"]["telegram"]["recebidas"] >= 1
+
+    wa = c["whatsapp"]
+    assert wa["lidas"] >= 1 and wa["falhas"] >= 1
+    # 3 statuses da MESMA mensagem contam como UMA mensagem
+    assert wa["com_status"] >= 2
+    assert wa["p50_ate_leitura_s"] is not None and wa["p50_ate_leitura_s"] >= 60
+    assert ("131047", 1) in wa["erros"]
+    assert ("template", 1) in wa["proativos_por_modo"]
 
 
 async def test_pedido_v1_sem_categoria_conta_como_funcionalidade():

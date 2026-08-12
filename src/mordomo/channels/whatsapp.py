@@ -506,10 +506,12 @@ class WhatsAppAdapter:
         turn_id, respostas = await processar_entrada(membro, inbound, self.grafo)
         session = session_id_de(membro.id)
         for resposta in respostas:
-            await self._enviar_wa(wa_id, resposta)
+            wamid_saida = await self._enviar_wa(wa_id, resposta)
             await emitir(
                 "message_sent", membro.id, session, turn_id,
-                canal=CANAL, tamanho=len(resposta.texto),
+                # O wamid amarra ESTA resposta aos statuses que chegam depois
+                # (entregue/lida) — é o que liga o turno à leitura de verdade.
+                canal=CANAL, tamanho=len(resposta.texto), wamid=wamid_saida,
             )
 
     async def _desculpa(self, wa_id: str) -> None:
@@ -522,7 +524,9 @@ class WhatsAppAdapter:
 
     # ── Renderização (contrato → WhatsApp) ───────────────────────────────
 
-    async def _enviar_wa(self, wa_id: str, msg: OutboundMessage) -> None:
+    async def _enviar_wa(self, wa_id: str, msg: OutboundMessage) -> str | None:
+        """Devolve o wamid da ÚLTIMA mensagem enviada (a que carrega a
+        pergunta) — é por ele que os statuses de entrega/leitura se casam."""
         for anexo in msg.anexos:
             await self._enviar_anexo(wa_id, anexo)
 
@@ -539,20 +543,19 @@ class WhatsAppAdapter:
         ultima = partes[-1]
 
         if modo is RenderMode.BUTTONS and isinstance(msg.interacao, Confirmation):
-            await self.api.enviar_botoes(
+            return await self.api.enviar_botoes(
                 wa_id, ultima,
                 [("sim", msg.interacao.sim_rotulo), ("nao", msg.interacao.nao_rotulo)],
             )
-        elif modo is RenderMode.BUTTONS and isinstance(msg.interacao, Choice):
-            await self.api.enviar_botoes(
+        if modo is RenderMode.BUTTONS and isinstance(msg.interacao, Choice):
+            return await self.api.enviar_botoes(
                 wa_id, ultima, [(op.id, op.rotulo) for op in msg.interacao.opcoes]
             )
-        elif modo is RenderMode.LIST and isinstance(msg.interacao, Choice):
-            await self.api.enviar_lista(
+        if modo is RenderMode.LIST and isinstance(msg.interacao, Choice):
+            return await self.api.enviar_lista(
                 wa_id, ultima, [(op.id, op.rotulo) for op in msg.interacao.opcoes]
             )
-        else:
-            await self.api.enviar_texto(wa_id, ultima)
+        return await self.api.enviar_texto(wa_id, ultima)
 
     async def _enviar_anexo(self, wa_id: str, anexo) -> None:
         """Bytes saem do banco e sobem a cada envio.
@@ -588,6 +591,10 @@ class WhatsAppAdapter:
             wamid=status.wamid,
             erro=status.erro,
             categoria=status.categoria,
+            # Relógio da META, não o nosso: a diferença entre o "sent" e o
+            # "read" do mesmo wamid é a latência até a LEITURA — métrica que o
+            # Telegram nunca deu. Nosso `ts` mede quando o webhook chegou.
+            ts_canal=int(status.timestamp.timestamp()),
         )
         if status.status == "failed":
             log.warning("WhatsApp não entregou %s (erro %s)", status.wamid, status.erro)

@@ -59,7 +59,11 @@ async def semear() -> None:
             turno += 1
             t = f"t{turno}"
             m = random.choice([1, 1, 2, 3])
-            ev("message_received", dias_atras, t, m)
+            # Migração em curso: o membro 1 já está no WhatsApp na semana
+            # recente (é o canário), o resto da família segue no Telegram —
+            # é o que faz a curva de adoção da seção Canais ter o que mostrar.
+            canal = "whatsapp" if (m == 1 and dias_atras < 7) else "telegram"
+            ev("message_received", dias_atras, t, m, canal=canal, tamanho=random.randint(15, 90))
             destino = random.choice(["lembretes", "lembretes", "agenda", "cofre", "responder"])
             ev("orchestrator_decision", dias_atras, t, m, destino=destino)
             ev("llm_usage", dias_atras, t, m, no="supervisor",
@@ -87,7 +91,27 @@ async def semear() -> None:
             ev("turn_completed", dias_atras, t, m, ok=random.random() > 0.03,
                latencia_ms=max(800.0, random.gauss(4200, 2600)) + espera,
                espera_fila_ms=espera)
-            ev("message_sent", dias_atras, t, m, canal="telegram", tamanho=120)
+            wamid = f"wamid.{turno}"
+            ev("message_sent", dias_atras, t, m, canal=canal, tamanho=120,
+               **({"wamid": wamid} if canal == "whatsapp" else {}))
+            if canal == "whatsapp":
+                # sent → delivered → read, no relógio da META (é a diferença
+                # entre esses carimbos que vira "tempo até ser lida"). Uma
+                # fatia falha (celular sem WhatsApp, número errado) e outra
+                # nunca é lida — senão a taxa de leitura daria 100% sempre.
+                base = int((agora - timedelta(days=dias_atras)).timestamp())
+                if random.random() < 0.05:
+                    ev("message_status", dias_atras, member=m, canal="whatsapp",
+                       status="failed", wamid=wamid, erro="131047", ts_canal=base)
+                else:
+                    ev("message_status", dias_atras, member=m, canal="whatsapp",
+                       status="sent", wamid=wamid, erro="", ts_canal=base)
+                    ev("message_status", dias_atras, member=m, canal="whatsapp",
+                       status="delivered", wamid=wamid, erro="", ts_canal=base + 2)
+                    if random.random() < 0.85:
+                        ev("message_status", dias_atras, member=m, canal="whatsapp",
+                           status="read", wamid=wamid, erro="",
+                           ts_canal=base + random.randint(20, 2400))
 
     # ── produto: cofre, pedidos (1 issue falha!), curadoria, convites ─────
     for d in (0, 1, 2, 5, 9, 12):
@@ -106,6 +130,13 @@ async def semear() -> None:
     ev("invite_rejected", 11, member=None, motivo="codigo_invalido")
     ev("dashboard_sent", 2, dias=30)
     ev("dashboard_sent", 7, dias=7)
+
+    # ── proativos no WhatsApp: dentro da janela de 24h (livre) e fora
+    # (template pago) — a quebra que vira custo a partir de 10/2026 ──────
+    for d in (0, 1, 2, 3, 4, 5, 6):
+        ev("proactive_channel", d, canal="whatsapp",
+           modo="free_form" if random.random() < 0.4 else "template",
+           template="lembrete_v1")
 
     # ── saúde: erro no grafo, desconhecido e órfãos LEGADOS (sem turn_id de
     # tipo que deveria ter — exercita a quebra de diagnóstico da Saúde) ────
