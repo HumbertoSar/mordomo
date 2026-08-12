@@ -26,7 +26,6 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     Message,
 )
-from sqlalchemy import select
 
 from ..analytics import emitir
 from ..config import settings
@@ -37,7 +36,7 @@ from ..db.session import Sessao
 from ..identity import identidade_do_membro, resolver_membro
 from ..notify import registrar_adapter
 from ..observability import session_de_grupo, session_id_de
-from . import transcricao
+from . import documentos, transcricao
 from .contract import (
     TELEGRAM_CAPS,
     Choice,
@@ -49,24 +48,12 @@ from .contract import (
     plan_rendering,
     render_numbered_text,
 )
+from .documentos import nome_da_legenda as _nome_da_legenda
 
 log = logging.getLogger(__name__)
 
-# A legenda vira o NOME do documento, mas gente escreve instrução: "Guardar essa
-# imagem como Carteirinha do Plano" (caso real, 11/08). Tiramos o verbo e as
-# palavras de ligação; se sobrar nada, ficamos com a legenda original.
-_RGX_INSTRUCAO_LEGENDA = re.compile(
-    r"^(?:por favor[,\s]+)?(?:pode(?:ria)?\s+)?"
-    r"(?:guardar?|salvar?|anotar?|arquivar?)\s*"
-    r"(?:ess[ae]|est[ae]|o|a)?\s*(?:imagem|foto|arquivo|documento)?\s*"
-    r"(?:como|de|:)?\s*",
-    re.IGNORECASE,
-)
-
-
-def _nome_da_legenda(legenda: str) -> str:
-    nome = _RGX_INSTRUCAO_LEGENDA.sub("", legenda.strip(), count=1).strip()
-    return nome or legenda.strip()
+# O reconhecimento do nome na legenda e a gravação no cofre moram em
+# channels/documentos.py — a regra é a mesma no WhatsApp (fase 3).
 
 
 def _dias_do_dashboard(args: str | None, padrao: int = 30) -> int | None:
@@ -247,27 +234,8 @@ class TelegramAdapter:
                 arquivo, mime = msg.document, (msg.document.mime_type or "application/octet-stream")
             buffer = io.BytesIO()
             await self.bot.download(arquivo.file_id, destination=buffer)
-            dados = buffer.getvalue()
-            async with Sessao() as s:
-                res = await s.execute(
-                    select(Document).where(Document.nome.ilike(nome), Document.dono == membro.id)
-                )
-                doc = res.scalar_one_or_none()
-                if doc is not None:
-                    doc.dados, doc.mime, doc.tamanho = dados, mime, len(dados)
-                    doc.telegram_file_id = arquivo.file_id
-                    acao = "atualizado"
-                else:
-                    doc = Document(
-                        nome=nome[:120], dono=membro.id, mime=mime, tamanho=len(dados),
-                        dados=dados, telegram_file_id=arquivo.file_id,
-                    )
-                    s.add(doc)
-                    acao = "guardado"
-                await s.commit()
-            await emitir(
-                "document_stored", membro.id, session_id_de(membro.id),
-                nome=nome, mime=mime, tamanho=len(dados),
+            acao = await documentos.guardar(
+                membro, nome, buffer.getvalue(), mime, telegram_file_id=arquivo.file_id
             )
             await msg.answer(
                 f"Documento \"{nome}\" {acao} no cofre. 🗄️ "

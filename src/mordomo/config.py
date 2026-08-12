@@ -13,6 +13,30 @@ class Settings(BaseSettings):
     # Canal
     telegram_bot_token: str = ""
 
+    # ── WhatsApp Cloud API (fase 3) ──────────────────────────────────────
+    # Tudo vazio = canal DESLIGADO e o bot sobe só com Telegram (mesmo padrão
+    # do Langfuse e do Groq). Como obter cada valor: docs/whatsapp-fase3.md.
+    whatsapp_token: str = ""             # System User, permanente (etapa 3)
+    whatsapp_phone_number_id: str = ""   # id do número remetente (etapa 2)
+    whatsapp_waba_id: str = ""           # conta WhatsApp Business (templates)
+    whatsapp_app_secret: str = ""        # valida X-Hub-Signature-256 (etapa 4)
+    whatsapp_verify_token: str = ""      # segredo do GET de verificação (etapa 5)
+    # A Meta descontinua versão da Graph API a cada ~2 anos — por isso é config,
+    # não constante. Changelog: developers.facebook.com/docs/graph-api/changelog
+    whatsapp_api_version: str = "v23.0"
+    whatsapp_porta: int = 8090           # porta INTERNA; quem fala HTTPS é o Caddy
+    # Fora da janela de 24h só sai template aprovado (imutável após aprovação —
+    # daí o sufixo de versão). Vazio = proativo fora da janela é ENGOLIDO com
+    # aviso no log, nunca vira erro para a família.
+    whatsapp_template_lembrete: str = "lembrete_v1"
+    whatsapp_template_idioma: str = "pt_BR"
+    whatsapp_janela_horas: int = 24      # regra da Meta; existe para o teste fixar
+
+    # Proatividade multi-canal: quem tem as duas identidades recebe por este
+    # canal. Durante o canário a família segue no Telegram — o que decide é
+    # existir identidade no canal, não esta variável.
+    canal_preferido: str = "whatsapp"
+
     # LLM via OpenRouter (API compatível com OpenAI)
     openrouter_api_key: str = ""
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
@@ -64,6 +88,17 @@ class Settings(BaseSettings):
     debounce_segundos: float = 1.5
     briefing_hora: str = "07:30"  # briefing matinal proativo; vazio desliga
     curadoria_hora: str = "18:30"  # curadoria de evals aos domingos; vazio desliga
+
+    @property
+    def whatsapp_habilitado(self) -> bool:
+        """Sem as 4 credenciais o canal nem sobe — meia configuração é pior que
+        nenhuma: o webhook responderia 200 sem conseguir devolver mensagem."""
+        return bool(
+            self.whatsapp_token
+            and self.whatsapp_phone_number_id
+            and self.whatsapp_app_secret
+            and self.whatsapp_verify_token
+        )
 
     @property
     def checkpointer_conn_string(self) -> str:

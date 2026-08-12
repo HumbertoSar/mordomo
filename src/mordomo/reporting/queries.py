@@ -321,6 +321,16 @@ SEM_TURNO_POR_DESENHO = (
     "invite_created",
     "invite_used",
     "invite_rejected",
+    # WhatsApp (fase 3): o canal avisa DEPOIS o que aconteceu com a mensagem —
+    # o status chega minutos após o turno terminar, sem como amarrá-lo a ele
+    # pelo turn_id. É casado pelo wamid no payload.
+    "message_status",
+    # Qual desenho de proatividade foi usado (free-form dentro da janela de 24h
+    # vs. template pago) — job proativo não nasce de pergunta nenhuma.
+    "proactive_channel",
+    # Webhook reentregue pela Meta (retry de até 7 dias) e barrado pelo dedupe:
+    # é fato de CANAL, não de turno — o turno original já aconteceu.
+    "message_duplicated",
 )
 
 

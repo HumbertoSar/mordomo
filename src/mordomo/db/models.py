@@ -68,8 +68,32 @@ class ChannelIdentity(Base):
     member_id: Mapped[int] = mapped_column(ForeignKey("members.id"))
     canal: Mapped[str] = mapped_column(String(20))          # "telegram" | "whatsapp"
     external_id: Mapped[str] = mapped_column(String(64))    # tg user_id / wa_id
+    # Última mensagem RECEBIDA desta identidade. No WhatsApp é o que abre a
+    # janela de 24h: dentro dela o proativo é free-form; fora, só template
+    # aprovado (regra da Meta, não nossa). None = nunca falou por aqui.
+    ultima_entrada_em: Mapped[datetime | None] = mapped_column(TZDateTime, nullable=True)
 
     member: Mapped[Member] = relationship(back_populates="identidades")
+
+
+class ChannelMessage(Base):
+    """Mensagem de entrada já processada — dedupe de webhook.
+
+    A Meta reenvia o webhook até receber 200 e insiste por ATÉ 7 DIAS. Sem esta
+    trava, um deploy demorado (ou um erro nosso de 30s) vira a mesma pergunta
+    processada N vezes: N lembretes criados, N respostas, N custos de LLM.
+    Dedupe em memória não serve — o retry sobrevive ao restart, o dicionário não.
+
+    Vale para qualquer canal com entrega at-least-once; o Telegram (long
+    polling, confirmação por offset) não precisa e não usa."""
+
+    __tablename__ = "channel_messages"
+    __table_args__ = (UniqueConstraint("canal", "message_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    canal: Mapped[str] = mapped_column(String(20))
+    message_id: Mapped[str] = mapped_column(String(128))    # wamid do WhatsApp
+    criado_em: Mapped[datetime] = mapped_column(TZDateTime, default=agora_utc, index=True)
 
 
 class Reminder(Base):

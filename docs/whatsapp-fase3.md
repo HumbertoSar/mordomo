@@ -1,0 +1,301 @@
+# Fase 3 — WhatsApp Cloud API: a burocracia da Meta, passo a passo
+
+Este documento é a **parte que só você pode fazer**: criar o app na Meta, obter
+as credenciais e apontar o webhook. Nada aqui exige código — mas o `.env` que
+sai daqui é o que liga o canal.
+
+> **Regra nº 8 do projeto:** nunca Evolution API / Baileys / WPPConnect. Elas
+> automatizam o WhatsApp *pessoal* por engenharia reversa e o risco de ban
+> permanente do número é real. Só Cloud API oficial.
+
+**Tempo estimado:** 40–60 min de cliques (etapas 1 a 5) + a espera de aprovação
+dos templates (etapa 7, minutos a horas). A etapa 6 (webhook) precisa do
+subdomínio já apontando para a VPS — dá para fazer as etapas 1–5 antes e voltar.
+
+---
+
+## Panorama: o que você vai colher
+
+| Etapa | O que sai de lá | Vira no `.env` |
+|---|---|---|
+| 2 | ID do número de teste | `WHATSAPP_PHONE_NUMBER_ID` |
+| 2 | ID da conta WhatsApp Business | `WHATSAPP_WABA_ID` |
+| 3 | Token permanente (System User) | `WHATSAPP_TOKEN` |
+| 4 | Chave secreta do app | `WHATSAPP_APP_SECRET` |
+| 5 | Uma senha que **você inventa** | `WHATSAPP_VERIFY_TOKEN` |
+| 6 | (configuração do webhook no painel) | — |
+| 7 | Nome dos templates aprovados | `WHATSAPP_TEMPLATE_LEMBRETE` |
+
+Os quatro primeiros são **segredos**: não commitar, só `.env` (regra nº 9).
+
+---
+
+## Etapa 0 — Decisão: número de teste ou chip dedicado?
+
+**Comece pelo número de teste.** A Meta dá um número de graça junto com o app;
+ele conversa com até **5 números destinatários cadastrados** — cabe a família
+inteira, que é exatamente o público desta fase.
+
+| | Número de teste (grátis) | Chip dedicado |
+|---|---|---|
+| Custo | zero | um chip/eSIM só para o bot |
+| Destinatários | até 5, cadastrados na mão | qualquer um |
+| Nome/foto do perfil | genérico da Meta | seu, verificado |
+| Some quando? | é permanente, mas não escala | — |
+
+O chip dedicado só se justifica quando existir o **segundo agente** (o do grupo
+de amigos), como você já tinha concluído. Para a família, teste basta.
+
+> ⚠️ O número que você cadastrar como **destinatário** não pode ser um número
+> já registrado como *remetente* de uma conta WhatsApp Business API. Use os
+> celulares normais da família — é o caso comum e funciona.
+
+---
+
+## Etapa 1 — App na Meta for Developers
+
+1. Acesse <https://developers.facebook.com/apps/> com sua conta Facebook
+   pessoal (a Meta exige uma; não precisa ter perfil ativo).
+2. **Criar app** → caso de uso: **"Outro"** → tipo: **"Empresa" / "Business"**.
+   (Se a tela oferecer direto "WhatsApp", pode seguir por ela — o resultado é o
+   mesmo app de tipo Business.)
+3. Nome do app: `mordomo-familia`. E-mail de contato: o seu.
+4. **Portfólio empresarial / Business Portfolio**: selecione um existente ou
+   crie na hora. É a "empresa" dona do app e da conta WhatsApp — mesmo para uso
+   familiar a Meta exige esse guarda-chuva. Pode ser seu nome.
+5. No painel do app: **Adicionar produto → WhatsApp → Configurar**.
+
+Ao final você cai na tela **WhatsApp → Introdução / API Setup**. É a tela mais
+importante de todas — deixe aberta.
+
+---
+
+## Etapa 2 — Número de teste e destinatários
+
+Ainda em **WhatsApp → Introdução (API Setup)**:
+
+1. Em **"De" / "From"** já aparece o **número de teste** com um seletor. Abaixo
+   dele, dois identificadores:
+   - **Identificação do número de telefone / Phone number ID** → copie para
+     `WHATSAPP_PHONE_NUMBER_ID` (é um número longo, ~15 dígitos, **não** é o
+     telefone em si).
+   - **Identificação da conta do WhatsApp Business / WABA ID** → copie para
+     `WHATSAPP_WABA_ID` (usado para gerenciar templates).
+2. Em **"Para" / "To"** → **Gerenciar lista de números** → adicione o seu
+   celular com DDI: `+55 21 9xxxx-xxxx`. A Meta manda um código **pelo próprio
+   WhatsApp** — confirme.
+3. Repita para os demais celulares da família (limite de 5 no total).
+4. Ainda nessa tela existe um botão **Enviar mensagem** que dispara o template
+   `hello_world`. **Clique.** Se a mensagem chegar no seu WhatsApp, a metade
+   Meta do caminho está provada antes de existir uma linha de código nossa.
+
+> 📌 O `wa_id` de cada pessoa (o identificador que o nosso `channel_identities`
+> vai guardar) é o telefone **só com dígitos, com DDI e sem `+`** —
+> `5521987654321`. No Brasil há a pegadinha do **nono dígito**: a Meta às vezes
+> devolve o número no formato antigo (sem o 9 depois do DDD). Por isso o
+> vínculo da família será feito por `/vincular CÓDIGO` — quem diz o `wa_id` é o
+> payload da Meta, nunca a digitação — e o código normaliza as duas formas.
+
+---
+
+## Etapa 3 — Token permanente (System User)
+
+O token que aparece na tela de Introdução é **temporário (24h)**. Serve para um
+teste com `curl` hoje à noite e nada mais. O token de verdade nasce de um
+**usuário do sistema**:
+
+1. <https://business.facebook.com/settings/> → escolha o portfólio empresarial
+   da etapa 1.
+2. Menu **Usuários → Usuários do sistema** → **Adicionar**.
+   - Nome: `mordomo-bot`
+   - Função: **Administrador** (mais simples; "Funcionário" funciona se você
+     atribuir os ativos corretamente no passo seguinte).
+3. Com o usuário do sistema selecionado → **Adicionar ativos**:
+   - **Apps** → `mordomo-familia` → permissão **Gerenciar app**.
+   - **Contas do WhatsApp** → a WABA da etapa 2 → **controle total**.
+   Sem esses dois ativos o token nasce sem poder falar com o seu número.
+4. **Gerar novo token**:
+   - App: `mordomo-familia`
+   - **Expiração: Nunca**
+   - Permissões: `whatsapp_business_messaging` (enviar/receber) e
+     `whatsapp_business_management` (templates). Se a lista oferecer
+     `business_management`, marque também — ajuda no gerenciamento por API.
+5. **Copie o token agora.** Ele aparece **uma única vez**. Vai para
+   `WHATSAPP_TOKEN` no `.env` da VPS.
+
+> Se perder, não tem "mostrar de novo": gere outro (e o antigo continua válido
+> até você revogá-lo — revogue).
+
+---
+
+## Etapa 4 — Chave secreta do app (assinatura do webhook)
+
+1. Painel do app → **Configurações do app → Básico**.
+2. **Chave secreta do app / App secret** → **Mostrar** → copie para
+   `WHATSAPP_APP_SECRET`.
+
+Para que serve: a Meta assina **todo** POST do webhook com
+`X-Hub-Signature-256: sha256=HMAC(app_secret, corpo_cru)`. Sem validar isso,
+qualquer um que descubra a sua URL manda mensagem fingindo ser a família — e o
+mordomo obedeceria. O nosso webhook **recusa 403** sem assinatura válida.
+
+---
+
+## Etapa 5 — Verify token (você inventa)
+
+Não é uma credencial da Meta: é uma senha compartilhada que a Meta devolve no
+GET de verificação para provar que quem responde é você.
+
+```bash
+openssl rand -hex 16
+```
+
+O resultado vai para `WHATSAPP_VERIFY_TOKEN` no `.env` **e** será digitado no
+painel na etapa 6. Precisa bater exatamente.
+
+---
+
+## Etapa 6 — Webhook (precisa do subdomínio pronto)
+
+**Pré-requisitos** (lado nosso, ver `docs/deploy-vps.md`):
+
+- um subdomínio apontando para o IP da VPS — ex.: `mordomo.SEUDOMINIO.com.br`,
+  registro **A** no DNS da Hostinger;
+- o Caddy do host servindo esse subdomínio com `reverse_proxy` para o container
+  (`127.0.0.1:8090`) — **não** suba outro proxy: a 80/443 já é do Caddy que
+  serve o storyrender;
+- o bot **rodando** na VPS com `WHATSAPP_VERIFY_TOKEN` preenchido (a Meta faz o
+  GET de verificação no ato de salvar; se o processo estiver parado, falha).
+
+No painel: **WhatsApp → Configuração / Configuration → Webhook → Editar**:
+
+| Campo | Valor |
+|---|---|
+| URL de retorno de chamada | `https://mordomo.SEUDOMINIO.com.br/whatsapp/webhook` |
+| Token de verificação | o mesmo `WHATSAPP_VERIFY_TOKEN` |
+
+**Verificar e salvar** → a Meta faz um `GET` com `hub.challenge`; o nosso
+endpoint devolve o desafio e a tela fica verde.
+
+Depois, em **Campos do webhook / Webhook fields** → **Gerenciar** → assine:
+
+- ✅ **`messages`** — obrigatório. Traz mensagens recebidas **e** os
+  `statuses` (sent/delivered/read/failed).
+
+Os demais campos (qualidade do template, limites da conta) são opcionais;
+`message_template_status_update` é útil quando você tiver muitos templates.
+
+> 🔁 **A Meta reenvia**: se o nosso endpoint não devolver `200` rápido, ela
+> tenta de novo — por até **7 dias**. É por isso que o webhook responde `200`
+> antes de processar e que existe dedupe por `wamid` no banco. Sem isso, um
+> deploy demorado vira uma enxurrada de lembretes duplicados.
+
+---
+
+## Etapa 7 — Templates (aprovar ANTES de precisar)
+
+Fora da janela de 24h desde a última mensagem **do usuário**, só sai template
+aprovado. Como lembrete quase sempre cai fora da janela, ele **precisa** de
+template — e a aprovação leva de minutos a horas. Aprove agora.
+
+**WhatsApp Manager** (<https://business.facebook.com/wa/manage/message-templates/>)
+→ **Criar modelo**:
+
+| Campo | Valor |
+|---|---|
+| Categoria | **Utilidade / Utility** (não Marketing — mais barato e aprova melhor) |
+| Nome | `lembrete_v1` |
+| Idioma | **Português (BR)** — `pt_BR` |
+| Corpo | `Lembrete: {{1}}` |
+
+Sugestão de segundo template, para o briefing matinal:
+
+| Campo | Valor |
+|---|---|
+| Nome | `briefing_v1` · Categoria Utilidade · `pt_BR` |
+| Corpo | `Bom dia! Resumo do seu dia: {{1}}` |
+
+Regras que doem se ignoradas:
+
+- **Template aprovado é imutável na prática** — editar joga para nova revisão e
+  derruba a aprovação. Por isso o sufixo de versão: mudou o texto → `lembrete_v2`,
+  e o `.env` aponta para o novo.
+- O corpo **não pode** ter variável no começo ou no fim, nem duas variáveis
+  coladas (`{{1}} {{2}}`). O `Lembrete: {{1}}` acima respeita isso.
+- Nada de conteúdo promocional em template de Utilidade.
+- Ao preencher, a Meta pede um **exemplo** para `{{1}}` — use algo real e
+  inocente ("pagar o boleto da escola").
+
+Preencha `WHATSAPP_TEMPLATE_LEMBRETE=lembrete_v1` no `.env`.
+
+---
+
+## Etapa 8 — Opt-in e política (o mínimo honesto)
+
+A Meta exige opt-in de quem recebe. Para uma família de 4 pessoas isso é uma
+conversa, não um formulário — mas registre:
+
+- cada membro entrou por `/vincular CÓDIGO`, ou seja, **pediu** para ser
+  contactado. Esse é o opt-in, e ele fica registrado em `product_events`
+  (`invite_used`, com canal).
+- diga em voz alta o que o bot guarda (lembretes, agenda, cofre) e que dá para
+  sair pedindo — a mesma frase que já está no `/start`.
+
+---
+
+## Custos — o detalhe que muda o desenho
+
+- **Fora da janela de 24h**: cada template enviado é cobrado (conversa de
+  Utilidade; centavos de real, mas não zero).
+- **A partir de outubro/2026** as mensagens free-form **dentro** da janela de
+  24h também passam a ser cobradas por mensagem. Ou seja: briefing matinal e
+  lembretes deixam de ser grátis no WhatsApp.
+- Consequência prática já assumida no código: proativo **só sai se houver
+  conteúdo** (briefing vazio não vira mensagem), e o dashboard vai ganhar a
+  dimensão de custo por canal.
+
+Confira a tabela vigente em
+<https://developers.facebook.com/docs/whatsapp/pricing> antes de ligar o
+briefing para a família toda.
+
+---
+
+## Checklist final do `.env` (VPS)
+
+```bash
+WHATSAPP_TOKEN=EAAG...                  # etapa 3 (permanente, System User)
+WHATSAPP_PHONE_NUMBER_ID=1234567890     # etapa 2
+WHATSAPP_WABA_ID=1234567890             # etapa 2
+WHATSAPP_APP_SECRET=abc123...           # etapa 4
+WHATSAPP_VERIFY_TOKEN=<openssl rand>    # etapa 5
+WHATSAPP_TEMPLATE_LEMBRETE=lembrete_v1  # etapa 7
+WHATSAPP_PORTA=8090                     # porta interna atrás do Caddy
+```
+
+Teste de fumaça sem o bot (troque os `<...>`):
+
+```bash
+curl -X POST "https://graph.facebook.com/v23.0/<PHONE_NUMBER_ID>/messages" -H "Authorization: Bearer <TOKEN>" -H "Content-Type: application/json" -d '{"messaging_product":"whatsapp","to":"<SEU_NUMERO_SO_DIGITOS>","type":"template","template":{"name":"hello_world","language":{"code":"en_US"}}}'
+```
+
+Chegou? Então token, número e permissões estão certos, e qualquer erro daqui
+em diante é nosso — não da Meta.
+
+---
+
+## Sequência recomendada (o que fazer em que ordem)
+
+1. Etapas 1–5 (colher credenciais) — pode ser hoje, sem VPS.
+2. `curl` de fumaça acima — prova o token.
+3. Etapa 7 (templates) — mande aprovar cedo, a fila é da Meta.
+4. Subdomínio no DNS + bloco no Caddy (`docs/deploy-vps.md`, seção WhatsApp).
+5. Deploy do bot com as variáveis → etapa 6 (webhook) → tela verde.
+6. **Canário**: só o seu número no WhatsApp por ~1 semana, família segue no
+   Telegram, comparando os dois no dashboard (o campo `canal` já viaja em todo
+   evento). Só depois migra o resto.
+
+> As etiquetas exatas do painel da Meta mudam de tempos em tempos (a interface
+> é traduzida e reorganizada com frequência). Se algum nome aqui não bater com
+> o que você está vendo, o caminho conceitual continua o mesmo: app Business →
+> produto WhatsApp → número + IDs → System User com os dois ativos → app secret
+> → webhook assinado → templates de Utilidade.
