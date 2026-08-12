@@ -37,6 +37,12 @@ services:
     environment:
       # Dentro do compose o Postgres se chama "postgres", não localhost
       DATABASE_URL: postgresql+psycopg://mordomo:${POSTGRES_PASSWORD:-mordomo}@postgres:5432/mordomo
+    ports:
+      # Webhook do WhatsApp (fase 3). SÓ localhost: quem termina o TLS e fala
+      # com a Meta é o Caddy do host (docs/deploy-vps.md § WhatsApp) — não
+      # brigamos pela 443, entramos como mais um site no proxy que já existe.
+      # Sem o WhatsApp configurado a porta fica aberta e ociosa, sem efeito.
+      - "127.0.0.1:${WHATSAPP_PORTA:-8090}:${WHATSAPP_PORTA:-8090}"
     depends_on:
       postgres:
         condition: service_healthy

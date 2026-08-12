@@ -1,7 +1,8 @@
 # Deploy na VPS (Ubuntu 24.04)
 
-O bot usa **long polling**: só tráfego de saída. Não precisa de domínio, HTTPS,
-webhook nem porta aberta — isso muda apenas na fase 3 (WhatsApp Cloud API).
+No Telegram o bot usa **long polling**: só tráfego de saída, sem domínio, HTTPS
+ou porta aberta. O WhatsApp (fase 3) muda isso — ele empurra os eventos por
+webhook e exige HTTPS público: veja a **seção 8** no fim deste documento.
 
 Modelo de operação a partir do deploy:
 
@@ -132,6 +133,86 @@ cd /opt/mordomo && git pull && docker compose --profile bot up -d --build
 No Langfuse, se quiser separar os traces, mude a tag em
 `observability.py::config_invocacao` (ex.: `"dev"` vs `"prod"`) — hoje tudo
 sai como `fase1`.
+
+## 8. WhatsApp (fase 3): subdomínio + Caddy do host
+
+Diferente do Telegram, o WhatsApp **empurra** os eventos: precisa de uma URL
+HTTPS pública. A VPS já tem um **Caddy no host** ocupando 80/443 (storyrender e
+outros) — o webhook entra como **mais um site nesse Caddy**, nunca como um
+segundo proxy.
+
+```
+Meta ──HTTPS──> Caddy do host (443) ──reverse_proxy──> 127.0.0.1:8090 (container do bot)
+```
+
+### 8.1 DNS
+
+No painel da Hostinger, registro **A**: `mordomo` → IP da VPS. Confira antes de
+seguir (o Caddy só emite certificado depois que o DNS propaga):
+
+```bash
+dig +short mordomo.SEUDOMINIO.com.br
+```
+
+### 8.2 Bloco no Caddyfile
+
+```bash
+nano /etc/caddy/Caddyfile
+```
+
+```caddyfile
+mordomo.SEUDOMINIO.com.br {
+	# Só as duas rotas que existem — o resto do mundo leva 404 sem chegar
+	# ao bot. A autenticação de verdade é a assinatura da Meta, validada
+	# no app; isto aqui é só reduzir a superfície.
+	@mordomo path /whatsapp/webhook /healthz
+	handle @mordomo {
+		reverse_proxy 127.0.0.1:8090
+	}
+	handle {
+		respond 404
+	}
+}
+```
+
+```bash
+caddy validate --config /etc/caddy/Caddyfile   # não recarregue sem validar
+systemctl reload caddy
+```
+
+### 8.3 Variáveis e subida
+
+Preencha no `.env` da VPS as variáveis `WHATSAPP_*` (de onde vem cada uma:
+[docs/whatsapp-fase3.md](whatsapp-fase3.md)) e recrie o container:
+
+```bash
+cd /opt/mordomo && git pull && docker compose --profile bot up -d --build
+docker compose logs -f bot     # espere "Mordomo a postos (canais: telegram, whatsapp)"
+```
+
+A migração `a17c3e90b4d2` (dedupe por wamid + janela de 24h) roda sozinha no
+boot, como as outras.
+
+### 8.4 Provar o caminho ANTES de mexer no painel da Meta
+
+```bash
+curl -s https://mordomo.SEUDOMINIO.com.br/healthz
+```
+
+Resposta `{"ok":true,"fila":0}` = DNS, certificado, Caddy e container estão de
+pé. Só então vá ao painel configurar o webhook (etapa 6 do guia) — se a tela da
+Meta recusar depois disso, o problema é o verify token, não a infra.
+
+> ⚠️ O bot precisa estar **rodando** na hora de salvar o webhook: a Meta faz o
+> GET de verificação no ato.
+
+### 8.5 Canais em paralelo (canário)
+
+Os dois canais rodam no **mesmo processo**, com o mesmo grafo e o mesmo
+checkpointer — e como thread = membro (ADR-003), quem migrar do Telegram para o
+WhatsApp **continua a mesma conversa**, com histórico e memória. O plano é
+canário: só você no WhatsApp por uma semana, a família no Telegram, comparando
+os dois no dashboard (o campo `canal` já viaja em todo evento).
 
 ## Diagnóstico rápido
 

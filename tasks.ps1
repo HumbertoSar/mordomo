@@ -28,7 +28,7 @@ $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 
 switch ($Alvo) {
-    "install" { uv sync @Extras }
+    "install" { uv sync --extra whatsapp @Extras }
     "up"      { docker compose up -d @Extras }
     "down"    { docker compose down @Extras }
     "db-init" { uv run python scripts/init_db.py @Extras }
@@ -37,8 +37,9 @@ switch ($Alvo) {
     "test"    { uv run pytest -q @Extras }
     "evals"   { uv run python evals/run_evals.py @Extras }
     "lint"    { uv run ruff check src tests @Extras }
+    "replay"  { uv run python scripts/replay_whatsapp.py --exemplo @Extras }
     default {
-        Write-Host "Alvos: install, up, down, db-init, seed, run, test, evals, lint"
+        Write-Host "Alvos: install, up, down, db-init, seed, run, test, evals, lint, replay"
         Write-Host "Exemplo: .\tasks.ps1 evals --com-llm"
     }
 }

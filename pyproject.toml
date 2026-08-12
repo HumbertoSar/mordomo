@@ -30,9 +30,12 @@ dev = [
     "aiosqlite>=0.20",                 # só para testes (banco em memória)
 ]
 
-# Fase 3 (WhatsApp): descomente e rode `uv sync`
-# [project.optional-dependencies]
-# whatsapp = ["pywa>=4.0", "fastapi>=0.115", "uvicorn>=0.32"]
+# Canal WhatsApp (fase 3): `uv sync --extra whatsapp`.
+# Extra, e não dependência fixa, para quem roda só Telegram não carregar um
+# servidor HTTP. Sem pywa (ADR-009): o adapter fala com a Cloud API por httpx,
+# que já é dependência — aqui só entra a borda HTTP do webhook.
+[project.optional-dependencies]
+whatsapp = ["fastapi>=0.115", "uvicorn>=0.32"]
 
 [build-system]
 requires = ["hatchling"]

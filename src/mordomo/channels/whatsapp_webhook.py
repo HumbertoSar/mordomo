@@ -13,8 +13,11 @@ Duas rotas, as duas do jeito que a Meta exige:
 Telegram nunca depende deles.
 """
 
-from __future__ import annotations
-
+# SEM `from __future__ import annotations` de propósito: com ele as anotações
+# viram strings e o FastAPI as resolve contra os GLOBAIS do módulo. Como
+# `Request` é importado dentro da função (import preguiçoso), ele não estaria
+# lá — e o FastAPI trataria `request` como parâmetro de QUERY, respondendo 422
+# na verificação da Meta.
 import hmac
 import json
 import logging

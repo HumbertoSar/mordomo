@@ -2,15 +2,17 @@
 
 Agente conversacional multi-agente (LangGraph) para a família do Humberto,
 construído para APRENDER **analytics, observabilidade e evals** — e servir de
-portfólio. Canal atual: Telegram (long polling). Destino: WhatsApp Cloud API
-oficial (fase 3). O plano completo vive no projeto Claude "Analytics para
-Agentes Conversacionais" (docs `mordomo-familia-arquitetura-e-possibilidades-v2.md`,
+portfólio. Canais: Telegram (long polling) **e WhatsApp Cloud API oficial**
+(webhook, fase 3 em migração — a família não usa Telegram, esse é o motivo).
+O plano completo vive no projeto Claude "Analytics para Agentes Conversacionais"
+(docs `mordomo-familia-arquitetura-e-possibilidades-v2.md`,
 `avaliacao-ideia-e-propostas-aprendizado.md`, `gestao-a-vista-agente-whatsapp.md`).
+Burocracia da Meta, passo a passo: `docs/whatsapp-fase3.md`.
 
 ## Comandos
 
 ```bash
-make install   # uv sync
+make install   # uv sync --extra whatsapp (o extra traz fastapi/uvicorn do webhook)
 make up        # Postgres via docker compose
 make db-init   # alembic upgrade head (NÃO é mais create_all)
 make seed      # cadastra família de exemplo (ou scripts/seed_familia.py --nome ... --telegram-id ...)
@@ -19,6 +21,8 @@ make test      # pytest — SEM rede/chaves/Docker (SQLite via tests/conftest.py
 make evals     # eval de datas pt-BR; `uv run python evals/run_evals.py --com-llm` inclui roteamento
 uv run python evals/experimentos_langfuse.py    # espelha datasets no Langfuse e registra Experiments
 make lint      # ruff
+
+make replay    # como as respostas reais ficariam no WhatsApp (passo 0 da fase 3)
 
 uv run python -m mordomo.reporting.dashboard --dias 30   # gera docs/dashboard.html
 uv run python scripts/preview_dashboard.py               # dashboard com dados SINTÉTICOS (mexeu no dashboard? veja aqui, sem deploy)
@@ -32,14 +36,15 @@ PowerShell recusar, `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` uma ve
 ## Arquitetura (mapa mental)
 
 ```
-Telegram (aiogram) ─┐                       ┌─ agents/supervisor.py  (roteia: Command/goto)
-WhatsApp (fase 3) ──┤→ channels/contract.py │→ agents/lembretes.py → tools/lembretes.py → scheduler.py
-                    │  (Inbound/Outbound    │→ agents/agenda.py    → tools/agenda.py
-                    │   SEMÂNTICOS)         │→ agents/cofre.py     → tools/cofre.py
-                    │                       └─ core/graph.py (StateGraph + checkpointer Postgres)
-                    └→ core/pipeline.py — nasce o trace (Langfuse), o turn_id, o LOCK por
-                       thread e a trava de retry (core/efeitos.py)
-notify.py: proatividade abstraída (scheduler → canal)  ·  identity.py: (canal, id) → member
+Telegram (aiogram, polling) ─┐                ┌─ agents/supervisor.py  (roteia: Command/goto)
+WhatsApp (webhook + fila) ───┤→ contract.py   │→ agents/lembretes.py → tools/lembretes.py → scheduler.py
+  whatsapp_webhook.py (HTTP) │  (Inbound/     │→ agents/agenda.py    → tools/agenda.py
+  whatsapp.py      (lógica)  │   Outbound     │→ agents/cofre.py     → tools/cofre.py
+  whatsapp_api.py  (Meta)    │   SEMÂNTICOS)  └─ core/graph.py (StateGraph + checkpointer Postgres)
+                             └→ core/pipeline.py — nasce o trace (Langfuse), o turn_id, o
+                                LOCK por thread e a trava de retry (core/efeitos.py)
+channels/comandos.py: /convidar e /vincular canal-agnósticos · channels/documentos.py: cofre
+notify.py: proatividade abstraída (scheduler → canal preferido) · identity.py: (canal, id) → member
 agents/_base.py: fábrica NoSubagente — subagente novo = prompt + 1 linha
 ```
 
@@ -89,7 +94,19 @@ agents/_base.py: fábrica NoSubagente — subagente novo = prompt + 1 linha
     mas só com o COMPARTILHADO — item/documento "só pra mim" é exclusivo do
     privado (filtro determinístico via `grupo_id` do configurable, nunca
     prompt). `/convidar` e `/vincular` só no privado (o código é segredo).
-14. **Privacidade (ADR-005)**: payload de analytics leva chave/id, nunca
+14. **WhatsApp (ADR-009)**: o POST do webhook **enfileira e devolve 200 na
+    hora** — trabalho síncrono ali faz a Meta considerar timeout e REENTREGAR
+    (ela insiste por 7 dias). Toda mensagem passa por
+    `whatsapp.registrar_entrada` (dedupe por wamid no banco, não em memória) e
+    o lote é ordenado por timestamp antes de virar turno. Quem fala com a Meta
+    é SÓ `whatsapp_api.py`; `whatsapp.py` é lógica pura e tem que continuar
+    testável sem rede.
+15. **Proativo no WhatsApp custa e tem regra**: dentro da janela de 24h desde a
+    última mensagem DO USUÁRIO → texto livre; fora → **template aprovado**
+    (imutável depois de aprovado, por isso `lembrete_v1` → `lembrete_v2`).
+    Quem decide é o adapter, nunca o núcleo. A partir de 10/2026 as duas formas
+    passam a ser cobradas — proativo sem conteúdo não deve sair.
+16. **Privacidade (ADR-005)**: payload de analytics leva chave/id, nunca
     valor nem texto de conversa; issue no repo público leva só o título
     (detalhe atrás de GITHUB_ISSUES_DETALHADAS, para repo privado); valor do
     cofre passa por `privacidade.registrar_segredo` antes de voltar ao LLM.
@@ -122,6 +139,16 @@ agents/_base.py: fábrica NoSubagente — subagente novo = prompt + 1 linha
   do script inteiro. Strings dos .ps1 ficam sem acento/travessão de propósito.
   E `Set-Content`/pipeline do PS corrompe UTF-8 dos fontes: edite .py com as
   ferramentas de edição, nunca com `-replace` + `Set-Content`.
+- **FastAPI + `from __future__ import annotations` não se dão bem com import
+  preguiçoso**: com o future import as anotações viram string e o FastAPI as
+  resolve contra os globais do MÓDULO. `Request` importado dentro da função
+  não está lá → o parâmetro vira query obrigatória e a verificação da Meta
+  recebe **422**. Por isso `whatsapp_webhook.py` não tem o future import.
+- **Mídia do WhatsApp expira**: o webhook manda um `media_id`, não os bytes; a
+  URL que ele resolve dura minutos e exige o Bearer token. Baixe na hora
+  (diferente do `file_id` estável do Telegram).
+- **Versão da Graph API** é config (`WHATSAPP_API_VERSION`), não constante — a
+  Meta descontinua cada versão em ~2 anos e o sintoma é 400 em tudo.
 - `.pytest_mordomo.db` às vezes sobrevive entre execuções (OneDrive segura o
   arquivo no Windows) — por isso os testes usam nomes/ids únicos por execução.
 
@@ -161,4 +188,12 @@ tools/lembretes testada (`tests/test_lembretes_tools.py`).
       datas+roteamento; qualidade ainda só local) + Evaluator LLM-as-judge
       "qualidade-mordomo" ativo em produção (juiz gemini, turno raiz, score 0-1)
 - [ ] Simulador de personas (OpenEvals)
-- [ ] Fase 3 WhatsApp: pywa + FastAPI, checklist da seção 4.4 do doc v2
+- [~] **Fase 3 WhatsApp** — código PRONTO (ADR-009: Cloud API direta, sem pywa):
+      adapter + webhook assinado + dedupe por wamid + janela de 24h/template +
+      statuses como analytics + replay (`make replay`), 25 testes sem rede.
+      Falta o que só o Humberto faz: credenciais na Meta
+      (`docs/whatsapp-fase3.md`), subdomínio + Caddy (`docs/deploy-vps.md` §8),
+      templates aprovados e a semana de canário.
+- [ ] Dashboard: painel do WhatsApp (entrega/leitura por `message_status`,
+      custo por canal com free-form cobrado a partir de 10/2026) e adoção
+      Telegram vs. WhatsApp (o campo `canal` já viaja em todo evento)
