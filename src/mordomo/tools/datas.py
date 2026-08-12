@@ -39,6 +39,11 @@ _SUBSTITUICOES: list[tuple[str, str]] = [
     (r"\b(?:às\s+)?(\d{1,2}(?::\d{2})?h?s?)\s+do\s+dia\s+(\d{1,2})\b", r"dia \2 às \1"),
     # "dia 5 de outubro" → "5 de outubro" (o "dia" solto atrapalha o parser).
     (r"\bdia\s+(?=\d)", ""),
+    # "dia 21 do mês 8 às 14 horas" (caso real, 11/08, criar_evento): mês por
+    # NÚMERO. Vira "21/8" ANTES da regra genérica abaixo — que removeria só o
+    # "do mês" e deixaria "21 8", que o dateparser resolve para a data-base
+    # (data ERRADA em silêncio, pior que None).
+    (r"\b(\d{1,2})\s+(?:desse|deste|do)\s+m[eê]s\s+(\d{1,2})\b", r"\1/\2"),
     # "dia 21 desse mês" (caso real do Davi, 11/08): o dateparser não conhece
     # "desse/deste mês" — mas "21" sozinho ele resolve no mês corrente.
     (r"\b(?:desse|deste|do)\s+m[eê]s\b", ""),
@@ -79,6 +84,10 @@ def _normalizar(expressao: str) -> str:
     e = re.sub(r"\b([àa]s)\s+(\d{1,2})\b(?!\s*:)", r"\1 \2:00", e)  # às 18 → às 18:00
     e = re.sub(r"\bao\s+(\d{1,2}:\d{2})\b", r"às \1", e)            # ao 12:00 → às 12:00
     e = re.sub(r"\bà\s+(?=\d{1,2}:\d{2})", "às ", e)                # à 00:00 → às 00:00
+    # "às 14 horas" (caso real, 11/08): a essa altura "às 14" já virou "14:00";
+    # o "horas" que sobra derruba o parser — e SÓ depois de HH:MM, para não
+    # tocar em duração ("em 2 horas" tem que continuar sendo daqui a 2h).
+    e = re.sub(r"\b(\d{1,2}:\d{2})\s+horas?\b", r"\1", e)           # 14:00 horas → 14:00
     e = _converter_periodo(e)                          # 8:00 da manhã → 08:00
     return re.sub(r"\s+", " ", e).strip()              # remover "que vem" deixa espaço duplo
 
