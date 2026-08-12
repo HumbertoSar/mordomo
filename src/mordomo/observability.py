@@ -100,6 +100,10 @@ def config_invocacao(
     else:
         thread_id, session_id = f"membro-{member_id}", session_id_de(member_id)
     return {
+        # Nome do run raiz = nome do TRACE no Langfuse. Sem isto, todo trace
+        # se chama "LangGraph" e a lista vira parede; com a thread no nome,
+        # dá para varrer a lista e saber de quem é cada turno sem abrir.
+        "run_name": f"turno {thread_id}",
         "configurable": {
             "thread_id": thread_id,
             "member_id": member_id,
