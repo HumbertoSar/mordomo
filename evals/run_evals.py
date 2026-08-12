@@ -8,7 +8,7 @@ Fluxo de trabalho (o loop do projeto): mexeu em resolver_data ou no prompt do
 supervisor → rode isto → o runner mostra o DELTA contra o último run salvo →
 `--salvar` registra. O history.csv é versionado de propósito: é a série
 "antes/depois" do portfólio, consultável em vez de espalhada em commits.
-Fase 2+: subir os datasets para o Langfuse (Datasets/Experiments) também."""
+Espelho no Langfuse (Datasets/Experiments): evals/experimentos_langfuse.py."""
 
 import argparse
 import asyncio

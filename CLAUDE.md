@@ -17,6 +17,7 @@ make seed      # cadastra família de exemplo (ou scripts/seed_familia.py --nome
 make run       # inicia o bot (precisa de TELEGRAM_BOT_TOKEN e OPENROUTER_API_KEY no .env)
 make test      # pytest — SEM rede/chaves/Docker (SQLite via tests/conftest.py)
 make evals     # eval de datas pt-BR; `uv run python evals/run_evals.py --com-llm` inclui roteamento
+uv run python evals/experimentos_langfuse.py    # espelha datasets no Langfuse e registra Experiments
 make lint      # ruff
 
 uv run python -m mordomo.reporting.dashboard --dias 30   # gera docs/dashboard.html
@@ -156,5 +157,8 @@ tools/lembretes testada (`tests/test_lembretes_tools.py`).
 - [x] `/vincular` (onboarding sem seed script) — /convidar gera código (só
       adulto), /vincular consome; quem convida decide o papel do convidado
 - [ ] Google Calendar no lugar da tabela própria — decidir ADR-004 (nativa vs. MCP)
-- [ ] Datasets → Langfuse Datasets/Experiments; simulador de personas (OpenEvals)
+- [x] Datasets → Langfuse Datasets/Experiments (`evals/experimentos_langfuse.py`:
+      datas+roteamento; qualidade ainda só local) + Evaluator LLM-as-judge
+      "qualidade-mordomo" ativo em produção (juiz gemini, turno raiz, score 0-1)
+- [ ] Simulador de personas (OpenEvals)
 - [ ] Fase 3 WhatsApp: pywa + FastAPI, checklist da seção 4.4 do doc v2
