@@ -542,6 +542,42 @@ async def gerar_html(dias: int = 30) -> str:
     return montar_html(await queries.coletar(dias))
 
 
+def montar_texto(d: dict) -> str:
+    """A gestão à vista em TEXTO, para canal que não aceita HTML.
+
+    O WhatsApp não recebe `text/html` como documento (a Cloud API rejeita o
+    mime), e mandar o painel como anexo quebrado seria pior que não mandar.
+    Aqui vai o essencial em texto-primeiro, no tom do canal (regra nº 6) — o
+    painel completo continua saindo pelo Telegram e pelo `make dashboard`."""
+    t, c = d["turnos"], d["custo"]
+    wa = (d.get("canais") or {}).get("whatsapp") or {}
+    linhas = [
+        f"📊 Gestão à vista — últimos {d['dias']} dias",
+        "",
+        (f"• {t['total']} turno(s), {max(t['membros_por_dia'].values(), default=0)} "
+         "pessoa(s) no melhor dia"),
+        f"• latência p50 {_ms(t['p50_ms'])} · p95 {_ms(t['p95_ms'])}",
+        f"• taxa de erro {t['taxa_erro']:.0%}",
+        f"• custo US$ {c['total_usd']:.4f}"
+        + (f" (US$ {c['total_usd'] / t['total']:.4f} por turno)" if t["total"] else ""),
+        f"• lembretes criados: {d['lembretes']['criados']}",
+    ]
+    if wa.get("com_status"):
+        entrega, leitura = wa.get("taxa_entrega"), wa.get("taxa_leitura")
+        entregue = f"{entrega:.0%} entregues" if entrega is not None else "entrega sem medida"
+        lidas = f", {leitura:.0%} lidas" if leitura is not None else ""
+        linhas.append(f"• WhatsApp: {entregue}{lidas}")
+    if d.get("orfaos"):
+        linhas.append(f"⚠️ {d['orfaos']} evento(s) órfão(s) — instrumentação para conferir")
+    linhas.append("")
+    linhas.append("O painel completo (gráficos) sai pelo Telegram ou pelo make dashboard.")
+    return "\n".join(linhas)
+
+
+async def gerar_texto(dias: int = 30) -> str:
+    return montar_texto(await queries.coletar(dias))
+
+
 async def _gerar(dias: int, saida: pathlib.Path) -> pathlib.Path:
     saida.parent.mkdir(parents=True, exist_ok=True)
     saida.write_text(await gerar_html(dias), encoding="utf-8")

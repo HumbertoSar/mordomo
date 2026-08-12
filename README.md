@@ -5,9 +5,12 @@ brasileira — lembretes, agenda e, em breve, tarefas, e-mail e indicações de
 filmes. Construído com **LangGraph** para aprender e demonstrar **analytics,
 observabilidade (Langfuse) e evals** em um agente com usuários reais.
 
-Canal atual: **Telegram** (long polling, zero burocracia). Destino: **WhatsApp
-Cloud API oficial** — a migração já está desenhada no contrato de canal
-(`src/mordomo/channels/contract.py`, ADR-001).
+Dois canais no mesmo processo: **Telegram** (long polling, zero burocracia) e
+**WhatsApp Cloud API oficial** (webhook assinado, dedupe de reentrega, janela de
+24h vs. template). O núcleo não sabe em qual dos dois está — quem traduz é o
+contrato de canal (`src/mordomo/channels/contract.py`, ADR-001), e por isso
+migrar a família não custou tocar em nenhum agente. Ligar o WhatsApp é
+preencher credenciais: [docs/whatsapp-fase3.md](docs/whatsapp-fase3.md).
 
 ## Stack
 
@@ -69,7 +72,7 @@ Casos reais ruins viram linhas nos datasets de `evals/datasets/`.
 
 ```
 src/mordomo/
-  channels/   contrato semântico + adapters (telegram; whatsapp na fase 3)
+  channels/   contrato semântico + adapters (telegram, whatsapp) + webhook
   core/       grafo, estado, pipeline (nasce o trace), fábrica de LLM/agentes
   agents/     supervisor (roteador) + subagentes lembretes e agenda
   tools/      tools com analytics embutido + datas pt-BR (dateparser)
@@ -77,23 +80,30 @@ src/mordomo/
   scheduler.py / notify.py / identity.py / observability.py / analytics.py
 evals/        datasets (datas pt-BR, roteamento) + runner
 tests/        contrato de renderização (golden), datas, identidade
-docs/adr/     as 4 decisões de arquitetura que valem portfólio
+docs/adr/     as decisões de arquitetura que valem portfólio (9)
 CLAUDE.md     guia para desenvolver com Claude Code
 ```
 
 ## Operar (VPS)
 
-O bot roda em long polling — nenhuma porta exposta. Deploy completo (Docker,
-migração dos dados, backup em cron, split dev/prod) em
+Deploy completo (Docker, migração dos dados, backup em cron, split dev/prod) em
 [docs/deploy-vps.md](docs/deploy-vps.md). Resumo: `git clone`, `.env`,
 `docker compose --profile bot up -d --build`.
+
+O Telegram é long polling (nenhuma porta exposta). O WhatsApp precisa de HTTPS
+público: um subdomínio entra como mais um site no Caddy que já serve a VPS,
+com `reverse_proxy` para a porta interna do container — seção 8 do mesmo
+documento.
 
 ## Decisões de arquitetura (resumo)
 
 ADR-001 contrato de canal (migração Telegram→WhatsApp sem tocar no agente) ·
 ADR-002 supervisor à mão (roteamento é eval de primeira classe) · ADR-003
 thread = membro (memória sobrevive à troca de canal) · ADR-004 tool nativa vs.
-MCP (decidir na fase 2). Detalhes em `docs/adr/`.
+MCP (decidir na fase 2) · ADR-005 privacidade e telemetria · ADR-006 latência e
+provedores · ADR-007 janela de contexto · ADR-008 mordomo em grupo · ADR-009
+WhatsApp direto na Cloud API, sem biblioteca intermediária. Detalhes em
+`docs/adr/`.
 
 > ⚠️ WhatsApp: apenas a **Cloud API oficial** (número de teste grátis para a
 > família; depois chip dedicado). Nunca Evolution API/Baileys no número

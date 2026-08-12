@@ -407,19 +407,15 @@ class WhatsAppAdapter:
                     entrada.de, "Uso: /dashboard [dias] — por exemplo, /dashboard 7. 🤵"
                 )
                 return
-        from ..reporting.dashboard import gerar_html
+        # Em TEXTO, não como arquivo: a Cloud API não aceita `text/html` como
+        # documento — o painel completo continua saindo pelo Telegram.
+        from ..reporting.dashboard import gerar_texto
 
-        conteudo = await gerar_html(dias)
-        media_id = await self.api.subir_midia(
-            conteudo.encode("utf-8"), "text/html", "mordomo-dashboard.html"
+        await self.api.enviar_texto(entrada.de, await gerar_texto(dias))
+        await emitir(
+            "dashboard_sent", membro.id, session_id_de(membro.id),
+            dias=dias, canal=CANAL, formato="texto",
         )
-        if media_id:
-            await self.api.enviar_midia(
-                entrada.de, media_id, "text/html",
-                legenda=f"Gestão à vista dos últimos {dias} dias — abra no navegador. 📊",
-                nome="mordomo-dashboard.html",
-            )
-            await emitir("dashboard_sent", membro.id, session_id_de(membro.id), dias=dias, canal=CANAL)
 
     async def _audio(self, membro, entrada: EntradaWA) -> None:
         """A URL da mídia EXPIRA em minutos — baixamos AGORA, não na hora de

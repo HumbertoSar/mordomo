@@ -305,6 +305,16 @@ async def test_status_vira_evento_de_analytics(adapter):
     assert evento is not None and evento.payload["status"] == "read"
 
 
+async def test_dashboard_no_whatsapp_vai_em_texto_nao_como_html(adapter):
+    """A Cloud API não aceita `text/html` como documento — o painel do
+    WhatsApp é texto; o arquivo completo continua saindo pelo Telegram."""
+    _, wa_id = await membro_wa("WaDashboard")
+    await adapter.processar(payload_texto(wa_id, "/dashboard 7", f"wamid.{uuid4().hex}"))
+    await asyncio.sleep(0.5)
+    assert adapter.api.midias == []
+    assert "Gestão à vista" in adapter.api.textos[-1][1]
+
+
 async def test_tipo_nao_suportado_recebe_recusa_simpatica(adapter):
     _, wa_id = await membro_wa("WaSticker")
     payload = payload_texto(wa_id, "", f"wamid.{uuid4().hex}")
