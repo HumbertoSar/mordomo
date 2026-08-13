@@ -98,6 +98,11 @@ class StatusWA:
     timestamp: datetime
     destinatario: str
     erro: str = ""
+    # O CÓDIGO sozinho não diz nada a quem lê o log às 23h: "erro 130497" mandou
+    # a gente procurar na documentação para descobrir "conta restrita de mandar
+    # mensagem para usuários deste país". A Meta manda o título junto — guardar
+    # custa nada e transforma o log em diagnóstico.
+    erro_titulo: str = ""
     categoria: str = ""          # pricing.category — de onde sai o custo
 
 
@@ -157,12 +162,19 @@ def parse_webhook(payload: dict) -> Lote:
                 ))
             for s in valor.get("statuses", []) or []:
                 erros = s.get("errors") or []
+                primeiro = erros[0] if erros else {}
                 lote.statuses.append(StatusWA(
                     wamid=s.get("id", ""),
                     status=s.get("status", ""),
                     timestamp=_quando(s.get("timestamp")),
                     destinatario=s.get("recipient_id", ""),
-                    erro=str(erros[0].get("code")) if erros else "",
+                    erro=str(primeiro.get("code")) if erros else "",
+                    # `title` é curto ("Business Account is restricted..."); o
+                    # `error_data.details` é a frase completa, quando vem.
+                    erro_titulo=(
+                        (primeiro.get("error_data") or {}).get("details")
+                        or primeiro.get("title", "")
+                    ),
                     categoria=((s.get("pricing") or {}).get("category") or ""),
                 ))
     lote.entradas.sort(key=lambda e: e.timestamp)
@@ -586,6 +598,7 @@ class WhatsAppAdapter:
             status=status.status,
             wamid=status.wamid,
             erro=status.erro,
+            erro_titulo=status.erro_titulo,
             categoria=status.categoria,
             # Relógio da META, não o nosso: a diferença entre o "sent" e o
             # "read" do mesmo wamid é a latência até a LEITURA — métrica que o
@@ -593,7 +606,10 @@ class WhatsAppAdapter:
             ts_canal=int(status.timestamp.timestamp()),
         )
         if status.status == "failed":
-            log.warning("WhatsApp não entregou %s (erro %s)", status.wamid, status.erro)
+            log.warning(
+                "WhatsApp não entregou %s — erro %s: %s",
+                status.wamid, status.erro, status.erro_titulo or "(sem detalhe)",
+            )
 
     # ── Interface ChannelAdapter ─────────────────────────────────────────
 

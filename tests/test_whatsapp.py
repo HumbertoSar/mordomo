@@ -193,6 +193,26 @@ def test_parse_statuses_traz_erro_e_categoria_de_cobranca():
     assert (status.status, status.erro, status.categoria) == ("failed", "131047", "utility")
 
 
+def test_parse_status_guarda_o_MOTIVO_da_falha_nao_so_o_codigo():
+    """Caso real (13/08): "erro 130497" no log obrigou a procurar na
+    documentação da Meta o que era. O título vem no mesmo payload."""
+    payload = {"entry": [{"changes": [{"value": {"statuses": [{
+        "id": "wamid.Y", "status": "failed", "timestamp": "5", "recipient_id": "5521999",
+        "errors": [{
+            "code": 130497,
+            "title": "Business Account is restricted from messaging users in this country",
+            "error_data": {"details": "Conta restrita de enviar mensagens para este país."},
+        }],
+    }]}}]}]}
+    status = wa.parse_webhook(payload).statuses[0]
+    assert status.erro == "130497"
+    assert "restrita" in status.erro_titulo          # details tem prioridade
+
+    # sem error_data, cai no title (é o formato mais comum)
+    payload["entry"][0]["changes"][0]["value"]["statuses"][0]["errors"][0].pop("error_data")
+    assert "restricted" in wa.parse_webhook(payload).statuses[0].erro_titulo
+
+
 def test_parse_de_payload_vazio_nao_explode():
     assert wa.parse_webhook({}).entradas == []
     assert wa.parse_webhook({"entry": [{"changes": [{"value": {}}]}]}).statuses == []
