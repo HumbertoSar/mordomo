@@ -294,6 +294,76 @@ conversa, não um formulário — mas registre:
 
 ---
 
+## Etapa 9 — Número PRÓPRIO (o caminho que de fato funciona no Brasil)
+
+Feito em 13/08/2026, depois de o número de teste bater no 130497. Um chip
+pré-pago comum resolve — **e ele não precisa ficar em aparelho nenhum**: o
+número vive nos servidores da Meta. O celular só serve para receber o código
+de verificação, uma única vez.
+
+**Antes**: não instale o WhatsApp comum com esse chip. Se instalar, a Meta
+recusa o registro e liberar exige apagar a conta e esperar até 48h.
+
+No app: **Step 2. Production setup → Register your WhatsApp phone number →
+Add new number**. São quatro telas:
+
+| Tela | O que preencher |
+|---|---|
+| Business information | nome (use o **nome legal**, é o que aparece em conta de luz/extrato se um dia verificar), site ou página de perfil, país |
+| WA Business Profile | **display name** (precisa se relacionar ao nome do negócio), fuso, categoria, descrição |
+| Add number | o número, verificação por SMS ou chamada |
+| Verify number | o código de 6 dígitos |
+
+> ⚠️ O formulário é frágil: um clique fora do modal fecha tudo e **perde o
+> preenchido**. Vale ter os valores anotados antes de começar.
+
+Isso cria uma **WABA de produção NOVA**, separada da de teste. Consequências
+que custam retrabalho se você não souber:
+
+- `WHATSAPP_PHONE_NUMBER_ID` e `WHATSAPP_WABA_ID` mudam;
+- **templates são por WABA** — os aprovados na conta de teste não valem aqui;
+- a assinatura do webhook também é por WABA: refaça o
+  `POST /{waba_id}/subscribed_apps`;
+- o número nasce `PENDING`: falta o `register` (abaixo).
+
+Descobrir os IDs novos sem depender do painel:
+
+```bash
+curl -s "https://graph.facebook.com/v25.0/<WABA_ID>/phone_numbers?fields=id,display_phone_number,verified_name,status,platform_type" -H "Authorization: Bearer <TOKEN>"
+```
+
+(o `WABA_ID` novo aparece no `asset_id=` da URL do WhatsApp Manager)
+
+**Registrar o número** (define o PIN de verificação em duas etapas — anote-o):
+
+```bash
+curl -s -X POST "https://graph.facebook.com/v25.0/<PHONE_NUMBER_ID>/register" -H "Authorization: Bearer <TOKEN>" -H "Content-Type: application/json" -d '{"messaging_product":"whatsapp","pin":"<6 dígitos>"}'
+```
+
+Depois disso o número fica `status: CONNECTED`, `platform_type: CLOUD_API`.
+
+### Templates: crie por API, não pelo formulário
+
+O editor web come o espaço antes da variável e recusa variável no fim do
+corpo. Por API são 20 segundos e o resultado é previsível:
+
+```bash
+curl -s -X POST "https://graph.facebook.com/v25.0/<WABA_ID>/message_templates" -H "Authorization: Bearer <TOKEN>" -H "Content-Type: application/json" --data '{"name":"lembrete_v1","language":"pt_BR","category":"UTILITY","components":[{"type":"BODY","text":"Lembrete do mordomo: {{1}}. Às ordens!","example":{"body_text":[["pagar o boleto da escola às 8h"]]}}]}'
+```
+
+## Diário de bordo: os erros reais e o que cada um significava
+
+Todos aconteceram nesta implementação, em 13/08/2026:
+
+| Erro / sintoma | Causa real | Solução |
+|---|---|---|
+| **133010** "Account not registered" | número (mesmo o de teste) não registrado na Cloud API | `POST /{phone_number_id}/register` com PIN |
+| Webhook verificado, mas **nada chega** | a WABA estava assinada só pelo app interno da Meta (`WA DevX Webhook Events 1P App`); o nosso app não constava | `POST /{waba_id}/subscribed_apps` |
+| **130497** "restricted from messaging users in this country" | número de teste é **+1** e o destinatário **+55**; vale até dentro da janela de 24h | número brasileiro próprio |
+| **131058** "Hello World templates can only be sent from the Public Test Numbers" | `hello_world` só existe para número de teste | usar template próprio, ou testar dentro da janela |
+| **131047** "more than 24 hours have passed" | resposta saindo por um número para o qual o usuário nunca escreveu (troca de número no meio) | escrever para o número novo (ou template) |
+| Aviso "app unpublished não recebe dados de produção" | **enganoso**: com a WABA assinada, mensagens reais chegam com o app em *development* | ignorar |
+
 ## Custos — o detalhe que muda o desenho
 
 - **Fora da janela de 24h**: cada template enviado é cobrado (conversa de
@@ -338,14 +408,34 @@ em diante é nosso — não da Meta.
 
 ## Sequência recomendada (o que fazer em que ordem)
 
-1. Etapas 1–5 (colher credenciais) — pode ser hoje, sem VPS.
-2. `curl` de fumaça acima — prova o token.
-3. Etapa 7 (templates) — mande aprovar cedo, a fila é da Meta.
-4. Subdomínio no DNS + bloco no Caddy (`docs/deploy-vps.md`, seção WhatsApp).
-5. Deploy do bot com as variáveis → etapa 6 (webhook) → tela verde.
-6. **Canário**: só o seu número no WhatsApp por ~1 semana, família segue no
-   Telegram, comparando os dois no dashboard (o campo `canal` já viaja em todo
-   evento). Só depois migra o resto.
+Refeita depois da implementação real — a ordem abaixo evita os becos que
+custaram uma tarde:
+
+1. Etapas 1, 3, 4, 5 (app + credenciais) — pode ser sem VPS.
+2. Subdomínio no DNS + bloco no Caddy (`docs/deploy-vps.md` §8) → `/healthz`.
+3. Deploy do bot → etapa 6 (webhook) → tela verde.
+4. **`POST /{waba_id}/subscribed_apps`** — sem isto o webhook não recebe nada,
+   e o painel não avisa.
+5. **Etapa 9: número próprio brasileiro** + `register`. Se o seu público é
+   brasileiro, pule o número de teste: ele não consegue enviar para o Brasil.
+6. Templates por API (etapa 9) — a fila da Meta leva de minutos a horas.
+7. **Primeiro teste sem depender de template**: mande você uma mensagem para o
+   bot; isso abre a janela de 24h e a resposta sai como texto livre, de graça.
+8. Método de pagamento — só necessário para mensagem iniciada pelo negócio
+   (lembrete fora da janela).
+9. **Canário**: um número por ~1 semana, resto da família no Telegram,
+   comparando na seção Canais do dashboard (o campo `canal` viaja em todo
+   evento). Migrar os outros com `/conectar` (mesmo `member_id`, sem perder
+   histórico) — **nunca** com `/vincular`, que cria pessoa nova.
+
+## O que ficou de fora (e por quê)
+
+- **Grupo**: a Groups API exige Official Business Account — inalcançável para
+  uma família. Detalhes em `docs/adr/008-grupo.md`. No WhatsApp o mordomo é
+  1:1; agenda e cofre compartilhado já respondem igual no privado de cada um.
+- **Proativo fora da janela de 24h**: depende de template aprovado **e** de
+  método de pagamento cadastrado. Dentro da janela funciona sem nenhum dos
+  dois — e é grátis.
 
 > As etiquetas exatas do painel da Meta mudam de tempos em tempos (a interface
 > é traduzida e reorganizada com frequência). Se algum nome aqui não bater com
