@@ -302,6 +302,40 @@ async def test_desconhecido_recebe_recusa_educada_e_nao_acorda_o_grafo(adapter):
     assert "vincular" in adapter.api.textos[-1][1].lower()
 
 
+async def test_desconhecido_consegue_se_CONECTAR_pelo_whatsapp(adapter):
+    """Bug real (13/08): o adapter checava identidade ANTES do comando, então
+    /conectar e /vincular — os comandos de quem ainda NÃO é conhecido — eram
+    engolidos pela recusa educada. Ela pede "mande /vincular CÓDIGO", a pessoa
+    manda, e recebe a mesma recusa. Laço infinito, onboarding do canal morto."""
+    from mordomo import convites
+    from mordomo.db.models import ChannelIdentity
+
+    membro = await criar_membro("WaConectaDoTelegram")
+    async with Sessao() as s:
+        s.add(ChannelIdentity(member_id=membro.id, canal="telegram",
+                              external_id=f"tg{membro.id}"))
+        await s.commit()
+    codigo = await convites.criar_codigo_de_conexao(membro)
+
+    wa_id = "5521" + uuid4().int.__str__()[:9]        # ainda desconhecido aqui
+    await adapter.processar(payload_texto(wa_id, f"/conectar {codigo}", f"wamid.{uuid4().hex}"))
+    await asyncio.sleep(0.05)
+
+    assert "Reencontrei você" in adapter.api.textos[-1][1]
+    # a identidade foi para o MESMO membro, não para um clone
+    assert (await wa.resolver_membro_wa(wa_id)).id == membro.id
+    # e a janela de 24h já abre com a conexão, não no turno seguinte
+    assert (await wa.identidade_wa(membro.id)).ultima_entrada_em is not None
+
+
+async def test_desconhecido_com_codigo_invalido_recebe_orientacao(adapter):
+    wa_id = "5521" + uuid4().int.__str__()[:9]
+    await adapter.processar(payload_texto(wa_id, "/conectar NAOEXISTE", f"wamid.{uuid4().hex}"))
+    await asyncio.sleep(0.05)
+    assert "não confere" in adapter.api.textos[-1][1]
+    assert adapter.grafo.chamadas == 0
+
+
 async def test_entrada_abre_a_janela_de_24h(adapter):
     membro, wa_id = await membro_wa("WaJanela")
     await adapter.processar(payload_texto(wa_id, "oi", f"wamid.{uuid4().hex}"))

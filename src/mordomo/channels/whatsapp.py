@@ -359,16 +359,33 @@ class WhatsAppAdapter:
                 await self._desculpa(entrada.de)
 
     async def _processar_entrada(self, entrada: EntradaWA) -> None:
+        # Dois checks azuis + "digitando…": é o único sinal de vida entre a
+        # pergunta e a resposta. Vale até para quem ainda não conhecemos —
+        # a pessoa precisa ver que a mensagem chegou.
+        await self.api.marcar_lido(entrada.wamid)
+
+        texto = entrada.texto.strip() if entrada.tipo in TIPOS_TEXTO else ""
+
+        # ONBOARDING ANTES DA IDENTIDADE. `/vincular` e `/conectar` são os
+        # comandos de quem AINDA não é conhecido — checar identidade primeiro
+        # (como estava) transformava a recusa educada num laço: ela pede
+        # "mande /vincular CÓDIGO", a pessoa manda, e recebe a mesma recusa.
+        # Quebrou o onboarding inteiro do canal e só apareceu no uso real.
+        if texto.startswith("/"):
+            resposta = await comandos.responder(CANAL, entrada.de, texto)
+            if resposta is not None:
+                await self.api.enviar_texto(entrada.de, resposta)
+                # Um /conectar bem-sucedido acabou de criar a identidade: a
+                # janela de 24h abre agora, não no próximo turno.
+                await marcar_entrada(CANAL, entrada.de, entrada.timestamp)
+                return
+
         membro = await resolver_membro_wa(entrada.de)
         if membro is None:
             await emitir("unknown_user", canal=CANAL, external_id=entrada.de)
             await self.api.enviar_texto(entrada.de, comandos.RECUSA_DESCONHECIDO)
             return
 
-        # Dois checks azuis + "digitando…": é o único sinal de vida entre a
-        # pergunta e a resposta. Cosmético, mas o Telegram tinha e a família
-        # notaria a falta.
-        await self.api.marcar_lido(entrada.wamid)
         await marcar_entrada(CANAL, entrada.de, entrada.timestamp)
 
         if entrada.tipo in ("audio", "voice"):
@@ -385,12 +402,10 @@ class WhatsAppAdapter:
             )
             return
 
-        texto = entrada.texto.strip()
         if not texto:
             return
-        if (resposta := await comandos.responder(CANAL, entrada.de, texto)) is not None:
-            await self.api.enviar_texto(entrada.de, resposta)
-            return
+        # Comando que sobrou daqui é o que `comandos.responder` não conhece
+        # (devolveu None lá em cima) — /dashboard e os que precisam de arquivo.
         if texto.startswith("/"):
             await self._comando_local(membro, entrada, texto)
             return
