@@ -30,13 +30,27 @@ enquanto identidade e permissão continuam individuais.
 6. **Canal-agnóstico**: o grupo entra pelo contrato (`InboundMessage.grupo_id`);
    o núcleo não sabe que canal é.
 
-## WhatsApp (fase 3)
+## WhatsApp (fase 3) — VERIFICADO EM 13/08/2026: não dá, e o motivo importa
 
-Bot não entra em grupo EXISTENTE de usuários (segue bloqueado pela Meta). Mas
-desde 02/2026 a Cloud API tem **Groups API**: o número do negócio CRIA grupos
-de até 8 membros e participa deles. O desenho acima porta direto — o adapter
-WhatsApp cria o "grupo da família + mordomo" e preenche `grupo_id`; núcleo,
-threads e analytics ficam como estão.
+A Groups API existe na Cloud API, mas **exige Official Business Account
+(OBA)** — o status de conta oficial da Meta, que soma verificação de negócio a
+uma avaliação de notoriedade da marca. Conta de família não obtém. Além disso:
+
+- o bot **nunca entra em grupo existente**: ele só CRIA grupos, e as pessoas
+  entram por **link de convite** (não há endpoint para adicionar participante);
+- teto de **8 participantes** por grupo;
+- grupos **não suportam mensagens interativas** (botões e listas) — o
+  `plan_rendering()` teria que degradar para texto numerado sempre.
+
+Ou seja: no WhatsApp, o mordomo é **1:1 por enquanto**. O desenho deste ADR
+continua válido e portável (o `grupo_id` do contrato segue existindo, e o
+adapter Telegram usa), mas o adapter WhatsApp não implementa grupo — e não
+adianta implementar antes do OBA.
+
+Consequência prática para a família: o que o grupo dava (perguntar junto,
+"o que temos sábado?") continua acessível no privado de cada um, porque agenda
+e cofre COMPARTILHADO já são por família, não por pessoa. O que se perde é a
+conversa coletiva em si.
 
 ## Consequências
 
