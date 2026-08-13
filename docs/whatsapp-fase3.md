@@ -201,32 +201,38 @@ template — e a aprovação leva de minutos a horas. Aprove agora.
 **WhatsApp Manager** (<https://business.facebook.com/wa/manage/message-templates/>)
 → **Criar modelo**:
 
-| Campo | Valor |
-|---|---|
-| Categoria | **Utilidade / Utility** (não Marketing — mais barato e aprova melhor) |
-| Nome | `lembrete_v1` |
-| Idioma | **Português (BR)** — `pt_BR` |
-| Corpo | `Lembrete: {{1}}` |
+Os dois templates do projeto (criados em 13/08/2026, categoria **Utilidade** —
+não Marketing: mais barato e aprova melhor — idioma **Português (BR)**):
 
-Sugestão de segundo template, para o briefing matinal:
-
-| Campo | Valor |
+| Nome | Corpo |
 |---|---|
-| Nome | `briefing_v1` · Categoria Utilidade · `pt_BR` |
-| Corpo | `Bom dia! Resumo do seu dia: {{1}}` |
+| `lembrete_v1` | `Lembrete do mordomo: {{1}}. Às ordens!` |
+| `briefing_v1` | `Bom dia! Seu resumo de hoje: {{1}}. Tenha um ótimo dia!` |
 
 Regras que doem se ignoradas:
 
+- **A variável não pode ficar no FIM do corpo** (nem no começo, nem colada em
+  outra). Foi por isso que o `Lembrete: {{1}}` original foi recusado na cara:
+  *"This template has too many variables for its length. Variables can't be at
+  the start or end of the template."* Daí o `. Às ordens!` no fim — ele existe
+  para satisfazer a Meta e, de quebra, soa como o bot.
 - **Template aprovado é imutável na prática** — editar joga para nova revisão e
   derruba a aprovação. Por isso o sufixo de versão: mudou o texto → `lembrete_v2`,
   e o `.env` aponta para o novo.
-- O corpo **não pode** ter variável no começo ou no fim, nem duas variáveis
-  coladas (`{{1}} {{2}}`). O `Lembrete: {{1}}` acima respeita isso.
+- No editor, o botão **"Add variable"** faz *trim* do texto antes da variável:
+  `Lembrete: ` + variável vira `Lembrete:{{1}}`, sem espaço. Confira no preview
+  e recoloque o espaço na mão.
 - Nada de conteúdo promocional em template de Utilidade.
-- Ao preencher, a Meta pede um **exemplo** para `{{1}}` — use algo real e
-  inocente ("pagar o boleto da escola").
+- A Meta pede um **exemplo** para `{{1}}` — use algo real e inocente ("pagar o
+  boleto da escola às 8h"). O exemplo é só para a revisão, não vai ao usuário.
+- **Validade padrão de 10 minutos**: se a mensagem de Utilidade não for
+  entregue nesse prazo (celular desligado), ela expira — não é cobrada e não
+  aparece. Para lembrete isso é até desejável; se algum dia não for, há
+  "Message validity period" no formulário.
 
-Preencha `WHATSAPP_TEMPLATE_LEMBRETE=lembrete_v1` no `.env`.
+Preencha `WHATSAPP_TEMPLATE_LEMBRETE=lembrete_v1` no `.env`. O código manda o
+texto do lembrete como **um** parâmetro posicional — por isso o "Type of
+variable" do formulário fica em **Number** (`{{1}}`), não em "Named".
 
 ---
 
