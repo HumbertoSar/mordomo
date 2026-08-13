@@ -63,6 +63,14 @@ class Settings(BaseSettings):
     llm_timeout_segundos: float = 8.0
     llm_max_retries: int = 2
     openrouter_provider_sort: str = "latency"  # "latency" | "throughput" | "price" | "" (sem preferência)
+    # Provedores permitidos, em ordem (CSV). Vazio = o OpenRouter escolhe.
+    # ISTO NÃO É AFINAÇÃO DE LATÊNCIA — é correção de um incidente real
+    # (13/08/2026): o mesmo `anthropic/claude-haiku-4.5` servido por Bedrock e
+    # Azure IGNORA `response_format: json_schema` e responde texto comum, o que
+    # explode o structured output do supervisor e deixa o bot mudo nos dois
+    # canais. Servido pela própria Anthropic, devolve JSON. Preencher aqui trava
+    # o roteamento em quem comprovadamente honra o schema.
+    openrouter_provider_order: str = ""
 
     # Contexto por chamada (ADR-007). O histórico completo fica no checkpointer;
     # ao LLM vão só as últimas N mensagens. Medido no primeiro dia de uso real:

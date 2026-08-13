@@ -11,12 +11,33 @@ from ..config import settings
 
 
 def chat_model(nome_modelo: str, temperatura: float = 0.0) -> ChatOpenAI:
-    extra = {}
-    if settings.openrouter_provider_sort:
+    # `require_parameters` é o que impede o incidente de 13/08/2026: o mesmo
+    # modelo servido por hosts diferentes NÃO tem as mesmas capacidades. Com
+    # sort=latency o OpenRouter mandou o supervisor para o Amazon Bedrock, que
+    # ignora `response_format: json_schema` — o modelo respondeu texto comum, o
+    # parser do SDK explodiu em ValidationError e a família levou "Ops,
+    # tropecei" em TODOS os turnos, nos dois canais, por horas.
+    #
+    # Com a flag, o OpenRouter só roteia para provedores que suportam TODOS os
+    # parâmetros enviados; quem não faz structured output sai do sorteio.
+    # Custa nada em quem já suporta e é a diferença entre roteador funcionando
+    # e bot mudo.
+    extra: dict = {"provider": {"require_parameters": True}}
+    if settings.openrouter_provider_order:
+        # Trava o roteamento nos provedores que HONRAM o json_schema. Sem
+        # `allow_fallbacks: False` o OpenRouter volta a cair em quem só finge
+        # suportar — e a falha é silenciosa: em vez de erro, vem texto que
+        # rebenta no parser. Provedor fora do ar aqui devolve ERRO, que o
+        # pipeline trata com retry e mensagem honesta; é o mal menor.
+        extra["provider"]["order"] = [
+            p.strip() for p in settings.openrouter_provider_order.split(",") if p.strip()
+        ]
+        extra["provider"]["allow_fallbacks"] = False
+    elif settings.openrouter_provider_sort:
         # O OpenRouter serve o mesmo modelo a partir de hosts diferentes; sem
         # preferência, a escolha é dele. Medido em produção: p50 1,3s mas uma
         # chamada de 10,6s no mesmo prompt (ADR-006).
-        extra["provider"] = {"sort": settings.openrouter_provider_sort}
+        extra["provider"]["sort"] = settings.openrouter_provider_sort
 
     return ChatOpenAI(
         model=nome_modelo,
