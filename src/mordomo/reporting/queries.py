@@ -396,6 +396,8 @@ async def funil(desde: datetime) -> list[tuple[str, int]]:
 SEM_TURNO_POR_DESENHO = (
     "reminder_fired",
     "proactive_sent",
+    # Nenhum canal do membro aceitou a mensagem proativa (≠ membro sem canal)
+    "proactive_failed",
     "unknown_user",
     "document_stored",
     "dashboard_sent",

@@ -61,6 +61,67 @@ async def test_membro_sem_canal_vira_false(monkeypatch):
     assert await notify.notificar(m.id, "oi") is False
 
 
+async def test_canal_preferido_falhou_cai_para_o_proximo(monkeypatch):
+    """Caso real da migração (13/08): WhatsApp vinculado mas barrado pela Meta
+    (erro 130497). Sem fallback, o membro com os DOIS canais parava de receber
+    lembretes — com o Telegram de pé, ao lado, funcionando."""
+    from mordomo.channels.contract import WHATSAPP_CAPS
+    from mordomo.config import settings
+
+    class _WhatsAppQueFalha(_AdapterQueExplode):
+        caps = WHATSAPP_CAPS
+
+    telegram = _AdapterQueFunciona()
+    monkeypatch.setattr(
+        notify, "_adapters", {"telegram": telegram, "whatsapp": _WhatsAppQueFalha()}
+    )
+    monkeypatch.setattr(settings, "canal_preferido", "whatsapp")
+
+    membro = await _membro_com_telegram("NotifyFallback", "99003")
+    async with Sessao() as s:
+        s.add(ChannelIdentity(member_id=membro.id, canal="whatsapp", external_id="5521999003"))
+        await s.commit()
+
+    assert await notify.notificar(membro.id, "⏰ remédio do Davi") is True
+    assert telegram.enviadas == [(membro.id, "⏰ remédio do Davi")]  # chegou pelo Telegram
+
+    async with Sessao() as s:
+        res = await s.execute(
+            select(ProductEvent).where(
+                ProductEvent.tipo == "proactive_sent", ProductEvent.member_id == membro.id
+            )
+        )
+        evento = res.scalars().one()
+    assert evento.payload["canal"] == "telegram"
+    assert evento.payload["fallback_de"] == ["whatsapp"]  # o rastro da migração
+
+
+async def test_todos_os_canais_falharam_vira_false_e_evento_proprio(monkeypatch):
+    from mordomo.channels.contract import WHATSAPP_CAPS
+
+    class _WhatsAppQueFalha(_AdapterQueExplode):
+        caps = WHATSAPP_CAPS
+
+    monkeypatch.setattr(
+        notify, "_adapters",
+        {"telegram": _AdapterQueExplode(), "whatsapp": _WhatsAppQueFalha()},
+    )
+    membro = await _membro_com_telegram("NotifyTudoFalhou", "99004")
+    async with Sessao() as s:
+        s.add(ChannelIdentity(member_id=membro.id, canal="whatsapp", external_id="5521999004"))
+        await s.commit()
+
+    assert await notify.notificar(membro.id, "oi") is False
+    async with Sessao() as s:
+        res = await s.execute(
+            select(ProductEvent).where(
+                ProductEvent.tipo == "proactive_failed", ProductEvent.member_id == membro.id
+            )
+        )
+        evento = res.scalars().one()
+    assert sorted(evento.payload["canais"]) == ["telegram", "whatsapp"]
+
+
 async def test_envio_ok_devolve_true_e_emite_proactive_sent(monkeypatch):
     adapter = _AdapterQueFunciona()
     monkeypatch.setattr(notify, "_adapters", {"telegram": adapter})
