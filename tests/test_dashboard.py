@@ -169,6 +169,35 @@ async def test_migracao_e_sinais_de_canal_aparecem_no_placar():
     assert await queries.orfaos(desde) == orfaos_antes
 
 
+async def test_custo_de_template_cobra_entregue_e_teto_sem_rastreio():
+    desde = datetime.now(UTC) - timedelta(hours=1)
+    base = (await queries.canais(desde))["whatsapp"]["templates_cobrados"]
+
+    # rastreado e entregue: cobra
+    await emitir("proactive_channel", 1, canal="whatsapp", modo="template", wamid="wamid.c1")
+    await emitir("message_status", 1, canal="whatsapp", status="delivered",
+                 wamid="wamid.c1", ts_canal=100)
+    # rastreado SEM confirmação de entrega: não cobra
+    await emitir("proactive_channel", 1, canal="whatsapp", modo="template", wamid="wamid.c2")
+    # antigo, sem rastreio: cobra como teto
+    await emitir("proactive_channel", 1, canal="whatsapp", modo="template")
+
+    wa = (await queries.canais(desde))["whatsapp"]
+    assert wa["templates_cobrados"] == base + 2
+    esperado = wa["templates_cobrados"] * queries.PRECO_TEMPLATE_WHATSAPP_USD
+    assert abs(wa["custo_templates_usd"] - esperado) < 1e-9
+
+
+async def test_latencia_por_canal_casa_pelo_turn_id():
+    desde = datetime.now(UTC) - timedelta(hours=1)
+    await emitir("message_received", 1, "1:t", "t-lat-wa", canal="whatsapp", tamanho=10)
+    await emitir("turn_completed", 1, "1:t", "t-lat-wa", ok=True, latencia_ms=1234.0)
+
+    lpc = await queries.latencia_por_canal(desde)
+    assert lpc["whatsapp"]["turnos"] >= 1
+    assert lpc["whatsapp"]["p50_ms"] is not None
+
+
 async def test_resumo_respeita_a_janela_superior():
     # `ate` no passado: os eventos recém-emitidos ficam FORA do resumo anterior
     agora = datetime.now(UTC)

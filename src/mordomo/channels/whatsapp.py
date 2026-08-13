@@ -646,8 +646,10 @@ class WhatsAppAdapter:
             return
         aberta = janela_aberta(identidade.ultima_entrada_em, settings.whatsapp_janela_horas)
         if aberta:
-            await self.api.enviar_texto(identidade.external_id, texto)
-            await emitir("proactive_channel", member_id, canal=CANAL, modo="free_form")
+            wamid = await self.api.enviar_texto(identidade.external_id, texto)
+            await emitir(
+                "proactive_channel", member_id, canal=CANAL, modo="free_form", wamid=wamid
+            )
             return
         template = settings.whatsapp_template_lembrete
         if not template:
@@ -657,7 +659,7 @@ class WhatsAppAdapter:
             )
             return
         try:
-            await self.api.enviar_template(
+            wamid = await self.api.enviar_template(
                 identidade.external_id,
                 template,
                 settings.whatsapp_template_idioma,
@@ -670,4 +672,9 @@ class WhatsAppAdapter:
             # CONFIGURAÇÃO (etapa 7 do guia), não de código — precisa aparecer.
             log.error("Template '%s' recusado pela Meta: %s", template, erro)
             raise
-        await emitir("proactive_channel", member_id, canal=CANAL, modo="template", template=template)
+        # O wamid amarra este envio ao status `delivered` que chega depois —
+        # é o que permite ao dashboard cobrar só o que a Meta cobra (entregue).
+        await emitir(
+            "proactive_channel", member_id, canal=CANAL,
+            modo="template", template=template, wamid=wamid,
+        )

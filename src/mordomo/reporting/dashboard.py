@@ -228,6 +228,8 @@ def montar_html(d: dict) -> str:
         _kpi("até ser lida", _seg(wa.get("p50_ate_leitura_s")), "mediana"),
         _kpi("falhas de entrega", str(wa.get("falhas", 0)),
              "Meta recusou", alerta=bool(wa.get("falhas"))),
+        _kpi("custo do canal", f"US$ {wa.get('custo_templates_usd', 0.0):.4f}",
+             f"{wa.get('templates_cobrados', 0)} template(s) — texto livre é grátis"),
     ])
     erros_wa = "".join(
         f"<tr><td>{html.escape(str(codigo))}</td><td class='num'>{n}</td></tr>"
@@ -237,6 +239,25 @@ def montar_html(d: dict) -> str:
         [(modo, n) for modo, n in (wa.get("proativos_por_modo") or [])]
     )
     canal_ligado = bool(wa.get("com_status") or por_canal.get("whatsapp"))
+
+    # Latência por canal: webhook+fila (WhatsApp) vs. long polling (Telegram).
+    # Só aparece com 2+ canais — com um canal só, é a distribuição acima.
+    lpc = d.get("latencia_por_canal") or {}
+    tabela_lat_canal = ""
+    if len(lpc) > 1:
+        linhas_lpc = "".join(
+            f"<tr><td>{html.escape(canal)}</td><td class='num'>{v['turnos']}</td>"
+            f"<td class='num'>{_ms(v['p50_ms'])}</td><td class='num'>{_ms(v['p95_ms'])}</td></tr>"
+            for canal, v in lpc.items()
+        )
+        tabela_lat_canal = (
+            '<h2 style="margin-top:1.5rem">Latência por canal</h2>'
+            "<div class='rolar'><table>"
+            "<tr><th>canal</th><th>turnos</th><th>p50</th><th>p95</th></tr>"
+            f"{linhas_lpc}</table></div>"
+            "<p class='vazio'>WhatsApp consistentemente acima do Telegram = custo do "
+            "caminho webhook+fila, não do LLM.</p>"
+        )
 
     custo_por_no = sorted(
         ((no, round(v["usd"], 5)) for no, v in c["por_no"].items()),
@@ -452,8 +473,11 @@ def montar_html(d: dict) -> str:
   <div class="card">
     {proativos_modo}
     <p class="vazio">Fora da janela de 24h só sai template aprovado (pago).
-       Texto livre dentro da janela é grátis; o template é o que custa —
-       esta quebra é o que vai virar linha de custo.</p>
+       Custo do período: {wa.get("templates_cobrados", 0)} template(s) ×
+       US$ {wa.get("preco_template_usd", 0):.4f} =
+       <b>US$ {wa.get("custo_templates_usd", 0.0):.4f}</b> — a Meta cobra por
+       mensagem ENTREGUE (envio rastreado sem confirmação de entrega não conta;
+       envio antigo sem rastreio conta, como teto).</p>
   </div>''' if wa.get("proativos_por_modo") else ""}
 
   {f'''
@@ -499,6 +523,7 @@ def montar_html(d: dict) -> str:
     <p class="vazio">p50 {_ms(d["turnos"]["p50_ms"])} · p95 {_ms(d["turnos"]["p95_ms"])} ·
        máx {_ms(d["turnos"]["max_ms"])}</p>
     {fila}
+    {tabela_lat_canal}
   </div>
 
   <h2>Custo e latência por nó — rotear vs. executar</h2>

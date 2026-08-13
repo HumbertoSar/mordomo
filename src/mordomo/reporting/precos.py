@@ -9,6 +9,12 @@ Conferido em 10/08/2026 na API pública do OpenRouter. Para atualizar:
     uv run python -m mordomo.reporting.precos
 """
 
+# WhatsApp Cloud API: template categoria UTILITY entregue no BRASIL, em USD
+# por MENSAGEM (a Meta cobra por mensagem entregue desde 07/2025; texto livre
+# dentro da janela de 24h é grátis). Conferido em 08/2026 — se a Meta revisar
+# a tabela, o histórico recalcula sozinho, como no custo de LLM.
+PRECO_TEMPLATE_WHATSAPP_USD = 0.0068
+
 # modelo -> (entrada, saída) em USD por 1M de tokens
 PRECOS: dict[str, tuple[float, float]] = {
     "anthropic/claude-haiku-4.5": (1.00, 5.00),

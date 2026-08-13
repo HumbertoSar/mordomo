@@ -137,11 +137,21 @@ async def semear() -> None:
     ev("dashboard_sent", 7, dias=7)
 
     # ── proativos no WhatsApp: dentro da janela de 24h (livre) e fora
-    # (template pago) — a quebra que mostra de onde vem o custo ──────────
+    # (template pago) — a quebra que mostra de onde vem o custo. Templates
+    # rastreados por wamid: só o ENTREGUE é cobrado; um fica sem confirmação
+    # (não cobra) e um é antigo sem wamid (cobra, como teto) ─────────────
     for d in (0, 1, 2, 3, 4, 5, 6):
-        ev("proactive_channel", d, canal="whatsapp",
-           modo="free_form" if random.random() < 0.4 else "template",
-           template="lembrete_v1")
+        if random.random() < 0.4:
+            ev("proactive_channel", d, canal="whatsapp", modo="free_form")
+            continue
+        w = f"wamid.p{d}"
+        ev("proactive_channel", d, canal="whatsapp", modo="template",
+           template="lembrete_v1", wamid=w)
+        if d != 3:  # o do dia 3 nunca recebe delivered — não deve ser cobrado
+            ev("message_status", d, member=1, canal="whatsapp", status="delivered",
+               wamid=w, erro="", ts_canal=int((agora - timedelta(days=d)).timestamp()))
+    ev("proactive_channel", 6, canal="whatsapp", modo="template",
+       template="lembrete_v1")  # sem wamid: evento antigo, cobra como teto
 
     # ── saúde: erro no grafo, desconhecido e órfãos LEGADOS (sem turn_id de
     # tipo que deveria ter — exercita a quebra de diagnóstico da Saúde) ────

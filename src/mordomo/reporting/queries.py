@@ -23,7 +23,7 @@ from sqlalchemy import func, select, text
 from ..config import settings
 from ..db.models import ProductEvent
 from ..db.session import Sessao
-from .precos import custo_usd
+from .precos import PRECO_TEMPLATE_WHATSAPP_USD, custo_usd
 
 
 def _tz():
@@ -317,6 +317,18 @@ async def canais(desde: datetime) -> dict:
         if (e.payload or {}).get("status") == "failed"
     )
 
+    # Custo do canal: a Meta só cobra TEMPLATE, por mensagem ENTREGUE. Envio
+    # com wamid conta quando o status delivered/read chegou; envio antigo sem
+    # wamid conta como entregue (teto honesto — melhor superestimar do que
+    # esconder custo).
+    t_eventos = [e for e in proativos if (e.payload or {}).get("modo") == "template"]
+    t_enviados = len(t_eventos)
+    t_cobrados = 0
+    for e in t_eventos:
+        w = (e.payload or {}).get("wamid")
+        if not w or "delivered" in etapas.get(w, {}) or "read" in etapas.get(w, {}):
+            t_cobrados += 1
+
     return {
         "por_canal": {
             canal: {"recebidas": v["recebidas"], "enviadas": v["enviadas"],
@@ -339,7 +351,39 @@ async def canais(desde: datetime) -> dict:
             "proativos_por_modo": Counter(
                 (e.payload or {}).get("modo") or "?" for e in proativos
             ).most_common(),
+            "templates_enviados": t_enviados,
+            "templates_cobrados": t_cobrados,
+            "custo_templates_usd": t_cobrados * PRECO_TEMPLATE_WHATSAPP_USD,
+            "preco_template_usd": PRECO_TEMPLATE_WHATSAPP_USD,
         },
+    }
+
+
+async def latencia_por_canal(desde: datetime) -> dict[str, dict]:
+    """p50/p95 da latência do turno POR CANAL, casando `message_received` (que
+    carrega o canal) com `turn_completed` pelo turn_id.
+
+    É a query que responde: o caminho webhook+fila do WhatsApp adiciona quanto
+    sobre o long polling do Telegram? Se o WhatsApp estiver consistentemente
+    pior, o problema é infra do canal — não LLM."""
+    recebidas = await _eventos(desde, ("message_received",))
+    canal_por_turno = {
+        e.turn_id: (e.payload or {}).get("canal") or "?"
+        for e in recebidas
+        if e.turn_id
+    }
+    por_canal: dict[str, list[float]] = defaultdict(list)
+    for e in await _eventos(desde, ("turn_completed",)):
+        canal = canal_por_turno.get(e.turn_id)
+        if canal and e.payload:
+            por_canal[canal].append(float(e.payload.get("latencia_ms", 0)))
+    return {
+        canal: {
+            "turnos": len(v),
+            "p50_ms": percentil(v, 0.50),
+            "p95_ms": percentil(v, 0.95),
+        }
+        for canal, v in sorted(por_canal.items())
     }
 
 
@@ -512,6 +556,7 @@ async def coletar(dias: int = 30) -> dict:
         "gerado_em": datetime.now(_tz()),
         "turnos": await turnos(desde),
         "canais": await canais(desde),
+        "latencia_por_canal": await latencia_por_canal(desde),
         "roteamento": await roteamento(desde),
         "ferramentas": await ferramentas(desde),
         "custo": await custo(desde),
