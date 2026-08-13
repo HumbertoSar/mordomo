@@ -275,7 +275,7 @@ WHATSAPP_PORTA=8090                     # porta interna atrás do Caddy
 Teste de fumaça sem o bot (troque os `<...>`):
 
 ```bash
-curl -X POST "https://graph.facebook.com/v23.0/<PHONE_NUMBER_ID>/messages" -H "Authorization: Bearer <TOKEN>" -H "Content-Type: application/json" -d '{"messaging_product":"whatsapp","to":"<SEU_NUMERO_SO_DIGITOS>","type":"template","template":{"name":"hello_world","language":{"code":"en_US"}}}'
+curl -X POST "https://graph.facebook.com/v25.0/<PHONE_NUMBER_ID>/messages" -H "Authorization: Bearer <TOKEN>" -H "Content-Type: application/json" -d '{"messaging_product":"whatsapp","to":"<SEU_NUMERO_SO_DIGITOS>","type":"template","template":{"name":"hello_world","language":{"code":"en_US"}}}'
 ```
 
 Chegou? Então token, número e permissões estão certos, e qualquer erro daqui

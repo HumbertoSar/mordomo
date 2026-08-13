@@ -68,7 +68,7 @@ class WhatsAppAPI:
         self,
         token: str,
         phone_number_id: str,
-        versao: str = "v23.0",
+        versao: str = "v25.0",
         cliente: httpx.AsyncClient | None = None,
     ) -> None:
         self.token = token

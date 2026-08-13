@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     whatsapp_verify_token: str = ""      # segredo do GET de verificação (etapa 5)
     # A Meta descontinua versão da Graph API a cada ~2 anos — por isso é config,
     # não constante. Changelog: developers.facebook.com/docs/graph-api/changelog
-    whatsapp_api_version: str = "v23.0"
+    whatsapp_api_version: str = "v25.0"
     whatsapp_porta: int = 8090           # porta INTERNA; quem fala HTTPS é o Caddy
     # Fora da janela de 24h só sai template aprovado (imutável após aprovação —
     # daí o sufixo de versão). Vazio = proativo fora da janela é ENGOLIDO com
