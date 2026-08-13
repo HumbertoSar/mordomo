@@ -245,6 +245,42 @@ variable" do formulário fica em **Number** (`{{1}}`), não em "Named".
 
 ---
 
+## Verificação de negócio: o que ela REALMENTE exige (levantado em 13/08/2026)
+
+Blogs de revendedor dizem que é obrigatória e que exige CNPJ. **O painel da
+Meta diz outra coisa** — na tela do Step 3, textualmente: *"Upload documents
+for Meta review (2–10 business days). **Optional but recommended**."*
+
+O que se tem SEM verificar nada (estado atual desta conta, lido no
+WhatsApp Manager → Messaging limits):
+
+| | Sem verificação | Com verificação |
+|---|---|---|
+| Números por portfólio | **2** | 20 |
+| Conversas iniciadas pelo negócio | **250 / 24h** | 2.000 → 10.000 → ilimitado |
+| Nome de exibição no chat | número | nome do negócio |
+| Proteção extra contra banimento | — | sim |
+
+Para uma família, **250 conversas iniciadas por dia é ordens de grandeza mais
+do que o necessário** (lembrete é coisa de unidades por dia). Ou seja: dá para
+operar sem verificação nenhuma.
+
+Se um dia quiser verificar, os documentos aceitos são mais amplos que "CNPJ":
+certificado de constituição, licença comercial, registro fiscal, **extrato
+bancário**, **conta de luz/água/internet/telefone** ou relatório de crédito —
+desde que mostrem o nome legal do negócio. Só um usuário **admin** pode enviar.
+
+## Custo real para uma família (rate card de 08/2026)
+
+- Resposta dentro da janela de 24h: **grátis** (mensagem de serviço).
+- Template de Utilidade dentro da janela: **grátis** também.
+- Template de Utilidade FORA da janela (o caso do lembrete): **~US$ 0,0068 por
+  mensagem entregue** no Brasil (~R$ 0,04).
+
+Conta de guardanapo: 4 pessoas × 3 lembretes/dia × 30 dias ≈ 360 mensagens ≈
+**US$ 2,50/mês** — e isso é o teto, porque todo lembrete que cai dentro de uma
+janela aberta sai de graça.
+
 ## Etapa 8 — Opt-in e política (o mínimo honesto)
 
 A Meta exige opt-in de quem recebe. Para uma família de 4 pessoas isso é uma
