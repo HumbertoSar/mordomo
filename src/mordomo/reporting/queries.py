@@ -403,6 +403,9 @@ SEM_TURNO_POR_DESENHO = (
     "invite_created",
     "invite_used",
     "invite_rejected",
+    # /conectar: anexar um canal novo ao mesmo membro (migração de canal)
+    "connect_created",
+    "connect_used",
     # WhatsApp (fase 3): o canal avisa DEPOIS o que aconteceu com a mensagem —
     # o status chega minutos após o turno terminar, sem como amarrá-lo a ele
     # pelo turn_id. É casado pelo wamid no payload.

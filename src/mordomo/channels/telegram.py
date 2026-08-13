@@ -36,7 +36,7 @@ from ..db.session import Sessao
 from ..identity import identidade_do_membro, resolver_membro
 from ..notify import registrar_adapter
 from ..observability import session_de_grupo, session_id_de
-from . import documentos, transcricao
+from . import comandos, documentos, transcricao
 from .contract import (
     TELEGRAM_CAPS,
     Choice,
@@ -184,6 +184,20 @@ class TelegramAdapter:
                 f"Convite criado para {nome} ({papel}), válido por {VALIDADE_DIAS} dias.\n"
                 f"Peça para a pessoa me mandar:\n\n/vincular {codigo}"
             )
+
+        @self.dp.message(Command("conectar"))
+        async def conectar(msg: Message, command: CommandObject) -> None:
+            # Migração de canal (fase 3): gera aqui, usa no WhatsApp — e o
+            # membro continua o MESMO, com lembretes, cofre e histórico.
+            # A regra mora em channels/comandos.py, canal-agnóstica.
+            resposta = await comandos.responder(
+                "telegram",
+                str(msg.from_user.id),
+                f"/conectar {command.args or ''}".strip(),
+                privado=msg.chat.type == "private",
+            )
+            if resposta:
+                await msg.answer(resposta)
 
         @self.dp.message(Command("vincular"))
         async def vincular(msg: Message, command: CommandObject) -> None:

@@ -94,7 +94,8 @@ agents/_base.py: fábrica NoSubagente — subagente novo = prompt + 1 linha
 13. **Grupo (ADR-008)**: cofre e documentos respondem no grupo da família,
     mas só com o COMPARTILHADO — item/documento "só pra mim" é exclusivo do
     privado (filtro determinístico via `grupo_id` do configurable, nunca
-    prompt). `/convidar` e `/vincular` só no privado (o código é segredo).
+    prompt). `/convidar`, `/vincular` e `/conectar` só no privado (o código é
+    segredo — e o de `/conectar` é chave da conta).
 14. **WhatsApp (ADR-009)**: o POST do webhook **enfileira e devolve 200 na
     hora** — trabalho síncrono ali faz a Meta considerar timeout e REENTREGAR
     (ela insiste por 7 dias). Toda mensagem passa por
@@ -102,13 +103,18 @@ agents/_base.py: fábrica NoSubagente — subagente novo = prompt + 1 linha
     o lote é ordenado por timestamp antes de virar turno. Quem fala com a Meta
     é SÓ `whatsapp_api.py`; `whatsapp.py` é lógica pura e tem que continuar
     testável sem rede.
-15. **Proativo no WhatsApp custa e tem regra**: dentro da janela de 24h desde a
+15. **Migrar de canal é `/conectar`, nunca `/vincular`**: `/vincular` CRIA
+    membro; quem já existe e usa o código de convite vira DUAS pessoas e perde
+    lembretes, cofre e histórico. `/conectar` (sem argumento no canal antigo →
+    com código no canal novo) anexa a identidade ao MESMO `member_id`
+    (`invite_codes.conectar_member_id`). Código vale 15 min e é chave da conta.
+16. **Proativo no WhatsApp custa e tem regra**: dentro da janela de 24h desde a
     última mensagem DO USUÁRIO → texto livre; fora → **template aprovado**
     (imutável depois de aprovado, por isso `lembrete_v1` → `lembrete_v2`).
     Quem decide é o adapter, nunca o núcleo. **Só o template custa** (cobrança
     por mensagem entregue desde 07/2025); texto livre dentro da janela é
     grátis. Ainda assim, proativo sem conteúdo não deve sair.
-16. **Privacidade (ADR-005)**: payload de analytics leva chave/id, nunca
+17. **Privacidade (ADR-005)**: payload de analytics leva chave/id, nunca
     valor nem texto de conversa; issue no repo público leva só o título
     (detalhe atrás de GITHUB_ISSUES_DETALHADAS, para repo privado); valor do
     cofre passa por `privacidade.registrar_segredo` antes de voltar ao LLM.
@@ -185,6 +191,8 @@ tools/lembretes testada (`tests/test_lembretes_tools.py`).
 - [ ] Recorrência de lembretes ("todo dia 5") + briefing matinal (job proativo)
 - [x] `/vincular` (onboarding sem seed script) — /convidar gera código (só
       adulto), /vincular consome; quem convida decide o papel do convidado
+- [x] `/conectar` — migrar de canal SEM virar duas pessoas: o código gerado no
+      canal antigo anexa a identidade nova ao mesmo membro (fase 3)
 - [ ] Google Calendar no lugar da tabela própria — decidir ADR-004 (nativa vs. MCP)
 - [x] Datasets → Langfuse Datasets/Experiments (`evals/experimentos_langfuse.py`:
       datas+roteamento; qualidade ainda só local) + Evaluator LLM-as-judge

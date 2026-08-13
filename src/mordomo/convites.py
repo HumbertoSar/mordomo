@@ -24,6 +24,10 @@ from .identity import resolver_membro
 # Sem 0/O/1/I/L — o código vai ser lido em voz alta e digitado no celular
 _ALFABETO = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 VALIDADE_DIAS = 7
+# Código de CONEXÃO vale minutos, não dias: quem o tiver vira você no canal
+# novo. O fluxo é "gero aqui, uso agora no outro app" — 15 minutos sobram, e
+# reduzem a janela em que um código esquecido na tela vira chave da conta.
+VALIDADE_CONEXAO_MINUTOS = 15
 PAPEIS = ("adulto", "crianca")
 
 
@@ -51,6 +55,28 @@ async def criar_convite(criador: Member, nome: str, papel: str) -> str | None:
         await s.refresh(convite)
     await emitir("invite_created", criador.id, papel=papel, convite_id=convite.id)
     return convite.codigo
+
+
+async def criar_codigo_de_conexao(membro: Member) -> str:
+    """Código para ANEXAR outro canal ao próprio cadastro (/conectar).
+
+    Diferente do convite: não cria membro, não tem papel a decidir e não é
+    coisa de adulto — é a pessoa se reconectando a si mesma. É o que permite
+    migrar de canal sem virar duas pessoas para o mordomo (ADR-003)."""
+    async with Sessao() as s:
+        codigo = InviteCode(
+            codigo=_gerar_codigo(),
+            nome=membro.nome,
+            papel=membro.papel,
+            criado_por=membro.id,
+            conectar_member_id=membro.id,
+            expira_em=datetime.now(UTC) + timedelta(minutes=VALIDADE_CONEXAO_MINUTOS),
+        )
+        s.add(codigo)
+        await s.commit()
+        await s.refresh(codigo)
+    await emitir("connect_created", membro.id, convite_id=codigo.id)
+    return codigo.codigo
 
 
 async def usar_convite(codigo: str, canal: str, external_id: str) -> tuple[Member | None, str]:
@@ -84,9 +110,19 @@ async def usar_convite(codigo: str, canal: str, external_id: str) -> tuple[Membe
             await emitir("invite_rejected", motivo="expirado", canal=canal)
             return None, "expirado"
 
-        membro = Member(nome=convite.nome, papel=convite.papel)
-        s.add(membro)
-        await s.flush()
+        # CONEXÃO: o membro já existe e só ganha um canal novo. Nada de criar
+        # Member — é exatamente isso que faz a migração de canal preservar
+        # lembretes, cofre e histórico de conversa.
+        conexao = convite.conectar_member_id is not None
+        if conexao:
+            membro = await s.get(Member, convite.conectar_member_id)
+            if membro is None:  # membro apagado depois de gerar o código
+                await emitir("invite_rejected", motivo="codigo_invalido", canal=canal)
+                return None, "codigo_invalido"
+        else:
+            membro = Member(nome=convite.nome, papel=convite.papel)
+            s.add(membro)
+            await s.flush()
         # Consumo ATÔMICO: só um /vincular consegue rowcount 1 — a checagem
         # "usado_por is None" lá em cima é cortesia (motivo amigável), a
         # garantia é ESTA linha.
@@ -112,5 +148,10 @@ async def usar_convite(codigo: str, canal: str, external_id: str) -> tuple[Membe
             await s.rollback()
             return await resolver_membro(canal, external_id), "ja_cadastrado"
 
+    if conexao:
+        # Motivo próprio: quem conecta merece "reencontrei você", não o
+        # "bem-vindo à família" de quem acabou de chegar.
+        await emitir("connect_used", membro.id, canal=canal)
+        return membro, "conectado"
     await emitir("invite_used", membro.id, papel=membro.papel, canal=canal)
     return membro, "ok"

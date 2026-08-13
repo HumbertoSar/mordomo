@@ -12,7 +12,13 @@ os filtros do aiogram); pode migrar para cá sem mudança de comportamento.
 
 from __future__ import annotations
 
-from ..convites import VALIDADE_DIAS, criar_convite, usar_convite
+from ..convites import (
+    VALIDADE_CONEXAO_MINUTOS,
+    VALIDADE_DIAS,
+    criar_codigo_de_conexao,
+    criar_convite,
+    usar_convite,
+)
 from ..identity import resolver_membro
 
 RECUSA_DESCONHECIDO = (
@@ -25,7 +31,8 @@ AJUDA = (
     "• criar lembretes — \"me lembra amanhã às 8h de pagar o boleto\"\n"
     "• cuidar da agenda — \"o que temos no sábado?\"\n"
     "• guardar o que sempre some — \"anota que o CEP de casa é 22222-000\"\n"
-    "\nComandos: /convidar NOME [adulto|crianca] · /vincular CÓDIGO · /ajuda"
+    "\nComandos: /convidar NOME [adulto|crianca] · /vincular CÓDIGO · "
+    "/conectar (para falar comigo em outro app) · /ajuda"
 )
 
 
@@ -80,6 +87,42 @@ async def responder(canal: str, external_id: str, texto: str, privado: bool = Tr
             f"Convite criado para {nome} ({papel}), válido por {VALIDADE_DIAS} dias.\n"
             f"Peça para a pessoa me mandar:\n\n/vincular {codigo}"
         )
+
+    if comando == "conectar":
+        # Sem argumento: GERA o código (quem pede já é membro deste canal).
+        # Com argumento: CONSOME no canal novo, onde a pessoa é desconhecida.
+        # O mesmo verbo nos dois lados porque, para o usuário, é uma coisa só:
+        # "conectar meu WhatsApp".
+        if not privado:
+            return "Conectar canal é assunto de privado — me chame lá. 🤫"
+        if not args:
+            membro = await resolver_membro(canal, external_id)
+            if membro is None:
+                return (
+                    "Aqui você ainda não é conhecido. Rode /conectar no canal em "
+                    "que já falo com você e traga o código para cá. 🤝"
+                )
+            codigo = await criar_codigo_de_conexao(membro)
+            return (
+                f"Para eu te reconhecer em outro aplicativo, mande LÁ:\n\n"
+                f"/conectar {codigo}\n\n"
+                f"O código vale {VALIDADE_CONEXAO_MINUTOS} minutos e serve uma vez só — "
+                "quem tiver ele fala comigo como se fosse você."
+            )
+        membro, motivo = await usar_convite(args.strip(), canal, external_id)
+        nome = membro.nome if membro else ""
+        return {
+            "conectado": f"Reencontrei você, {nome}! 🤵 Seus lembretes, sua agenda e "
+                         "seu cofre continuam aqui — é a mesma conversa, em outro aparelho.",
+            "ok": f"Bem-vindo(a) à família, {nome}! 🤵",
+            "ja_cadastrado": f"Já nos conhecemos por aqui, {nome}! Às ordens.",
+            "codigo_invalido": "Esse código não confere. Gere um novo com /conectar no outro canal. 🤔",
+            "ja_usado": "Esse código já foi usado. Gere um novo com /conectar.",
+            "expirado": (
+                f"Esse código expirou (vale {VALIDADE_CONEXAO_MINUTOS} minutos). "
+                "Gere outro com /conectar."
+            ),
+        }[motivo]
 
     if comando == "vincular":
         if not privado:

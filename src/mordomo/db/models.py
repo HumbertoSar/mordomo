@@ -181,6 +181,13 @@ class InviteCode(Base):
     nome: Mapped[str] = mapped_column(String(80))          # nome do futuro membro
     papel: Mapped[str] = mapped_column(String(20))         # adulto | crianca
     criado_por: Mapped[int] = mapped_column(ForeignKey("members.id"))
+    # CONEXÃO de canal (/conectar), não convite: quando preenchido, consumir o
+    # código NÃO cria membro — anexa a identidade do canal novo a ESTE membro.
+    # É o que faz a migração Telegram → WhatsApp preservar histórico, cofre e
+    # lembretes (ADR-003: thread = membro, e o membro é o mesmo).
+    conectar_member_id: Mapped[int | None] = mapped_column(
+        ForeignKey("members.id"), nullable=True
+    )
     criado_em: Mapped[datetime] = mapped_column(TZDateTime, default=agora_utc)
     expira_em: Mapped[datetime] = mapped_column(TZDateTime)
     usado_por: Mapped[int | None] = mapped_column(ForeignKey("members.id"), nullable=True)
