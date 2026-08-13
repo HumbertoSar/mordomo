@@ -75,6 +75,11 @@ class Settings(BaseSettings):
     # Default "dev" de propósito: produção é quem declara AMBIENTE=prod.
     ambiente: str = "dev"
 
+    # Release nos traces do Langfuse: "o score caiu A PARTIR DE QUAL deploy?".
+    # No container chega pelo build-arg GIT_SHA (ver Dockerfile/compose); em
+    # dev fica vazio e o observability lê o SHA direto de .git/.
+    mordomo_release: str = ""
+
     # Pedidos da família → issues (vazio = só registra em product_events)
     github_token: str = ""
     github_repo: str = "HumbertoSar/mordomo"

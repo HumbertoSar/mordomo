@@ -91,7 +91,7 @@ Pular esta etapa = família perde lembretes, agenda e histórico de conversa.
 ## 4. Subir o bot
 
 ```bash
-docker compose --profile bot up -d --build
+GIT_SHA=$(git rev-parse --short=12 HEAD) docker compose --profile bot up -d --build
 docker compose logs -f bot     # espere "🤵 Mordomo a postos."
 ```
 
@@ -121,7 +121,7 @@ gpg -d backups/mordomo_X.sql.gpg | docker compose exec -T postgres psql -U mordo
 ## 6. Atualizar (a cada mudança de código)
 
 ```bash
-cd /opt/mordomo && git pull && docker compose --profile bot up -d --build
+cd /opt/mordomo && git pull && GIT_SHA=$(git rev-parse --short=12 HEAD) docker compose --profile bot up -d --build
 ```
 
 ## 7. Dev na sua máquina, sem conflito
@@ -186,7 +186,7 @@ Preencha no `.env` da VPS as variáveis `WHATSAPP_*` (de onde vem cada uma:
 [docs/whatsapp-fase3.md](whatsapp-fase3.md)) e recrie o container:
 
 ```bash
-cd /opt/mordomo && git pull && docker compose --profile bot up -d --build
+cd /opt/mordomo && git pull && GIT_SHA=$(git rev-parse --short=12 HEAD) docker compose --profile bot up -d --build
 docker compose logs -f bot     # espere "Mordomo a postos (canais: telegram, whatsapp)"
 ```
 

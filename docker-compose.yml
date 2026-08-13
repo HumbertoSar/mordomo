@@ -31,7 +31,13 @@ services:
   # e subir os dois com o MESMO token daria conflito 409 no long polling.
   bot:
     profiles: ["bot"]
-    build: .
+    build:
+      context: .
+      args:
+        # SHA do deploy → release nos traces do Langfuse ("caiu a partir de
+        # qual deploy?"). O comando de deploy injeta:
+        #   GIT_SHA=$(git rev-parse --short=12 HEAD) docker compose --profile bot up -d --build
+        GIT_SHA: ${GIT_SHA:-}
     container_name: mordomo-bot
     env_file: .env
     environment:

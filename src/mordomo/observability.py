@@ -11,6 +11,7 @@ todos os ids de modelo do OpenRouter — dá para cadastrar preços por modelo n
 próprio Langfuse (Settings → Models)."""
 
 import logging
+import pathlib
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -18,6 +19,32 @@ from .config import settings
 
 log = logging.getLogger(__name__)
 _handler = None
+
+
+def _release_do_git() -> str | None:
+    """SHA curto lido direto de .git/ — sem binário git (a imagem slim não tem)
+    e sem subprocess. No container o .git nem existe (.dockerignore): lá o SHA
+    chega pronto em MORDOMO_RELEASE, injetado no build."""
+    try:
+        raiz = pathlib.Path(__file__).resolve().parents[2]
+        head = (raiz / ".git" / "HEAD").read_text(encoding="ascii").strip()
+        if not head.startswith("ref:"):
+            return head[:12]  # HEAD solto (detached): já é o SHA
+        ref = head.split(" ", 1)[1]
+        arquivo_ref = raiz / ".git" / ref
+        if arquivo_ref.exists():
+            return arquivo_ref.read_text(encoding="ascii").strip()[:12]
+        for linha in (raiz / ".git" / "packed-refs").read_text(encoding="ascii").splitlines():
+            if linha.endswith(ref):
+                return linha.split(" ", 1)[0][:12]
+    except OSError:
+        pass
+    return None
+
+
+def release_atual() -> str | None:
+    """Carimbo de versão dos traces: env do build (produção) ou .git (dev)."""
+    return settings.mordomo_release or _release_do_git()
 
 
 def langfuse_callbacks() -> list:
@@ -41,6 +68,8 @@ def langfuse_callbacks() -> list:
                 host=settings.langfuse_host,
                 # ADR-005: valores do Cofre nunca chegam ao trace
                 mask=mascarar,
+                # "Caiu a partir de qual deploy?" — todo trace sai carimbado
+                release=release_atual(),
             )
             _handler = CallbackHandler()
             log.info("Langfuse ligado (%s)", settings.langfuse_host)
@@ -88,6 +117,7 @@ def config_invocacao(
     member_papel: str,
     turn_id: str,
     grupo_id: str | None = None,
+    canal: str | None = None,
 ) -> dict:
     """Config do LangGraph: thread por MEMBRO (ADR-003) — ou por GRUPO (ADR-008),
     quando a conversa é coletiva; a identidade continua individual.
@@ -119,9 +149,13 @@ def config_invocacao(
         "metadata": {
             "langfuse_user_id": str(member_id),
             "langfuse_session_id": session_id,
-            "langfuse_tags": ["mordomo", settings.ambiente],
+            # canal:whatsapp / canal:telegram — o filtro da semana de canário:
+            # "me mostra só os replays do WhatsApp" e o score do juiz por canal.
+            "langfuse_tags": ["mordomo", settings.ambiente]
+            + ([f"canal:{canal}"] if canal else []),
             # Chaves sem prefixo langfuse_ viram metadata do trace: é a ponte
             # entre um trace e as linhas de product_events do mesmo turno.
             "turn_id": turn_id,
+            **({"canal": canal} if canal else {}),
         },
     }

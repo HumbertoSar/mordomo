@@ -18,7 +18,11 @@ RUN uv sync --frozen --no-dev --extra whatsapp --no-install-project
 COPY . .
 RUN uv sync --frozen --no-dev --extra whatsapp
 
+# Release dos traces do Langfuse: o SHA entra por build-arg porque o .git fica
+# fora da imagem (.dockerignore). Vazio = traces sem release (dev/local).
+ARG GIT_SHA=""
 ENV TZ=America/Sao_Paulo \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    MORDOMO_RELEASE=$GIT_SHA
 
 CMD ["uv", "run", "--no-sync", "python", "-m", "mordomo.main"]
