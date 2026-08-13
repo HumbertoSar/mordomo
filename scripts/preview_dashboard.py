@@ -128,6 +128,11 @@ async def semear() -> None:
     ev("invite_created", 6, papel="adulto")
     ev("invite_used", 6, member=4, papel="adulto")
     ev("invite_rejected", 11, member=None, motivo="codigo_invalido")
+    # migração de canal: 2 códigos de /conectar, só 1 completou — exercita o
+    # aviso de migração que empacou
+    ev("connect_created", 5, member=2)
+    ev("connect_used", 5, member=2, canal="whatsapp")
+    ev("connect_created", 2, member=3)
     ev("dashboard_sent", 2, dias=30)
     ev("dashboard_sent", 7, dias=7)
 
@@ -142,6 +147,8 @@ async def semear() -> None:
     # tipo que deveria ter — exercita a quebra de diagnóstico da Saúde) ────
     ev("error", 2, "t3", onde="grafo", tentativa=1)
     ev("unknown_user", 4, member=None, canal="telegram")
+    ev("proactive_failed", 3, member=2, canais=["whatsapp", "telegram"], tamanho=64)
+    ev("message_duplicated", 1, member=None, canal="whatsapp", wamid="wamid.dup")
     ev("message_sent", 10, canal="telegram", tamanho=42)
     ev("tool_called", 10, tool="criar_lembrete")
 

@@ -218,7 +218,10 @@ def montar_html(d: dict) -> str:
         if total_dia:
             fatia_wa[dia] = round(100 * canais_do_dia.get("whatsapp", 0) / total_dia)
 
+    membros_wa = (por_canal.get("whatsapp") or {}).get("membros", 0)
+    membros_tg = (por_canal.get("telegram") or {}).get("membros", 0)
     kpis_canais = "".join([
+        _kpi("membros no WhatsApp", str(membros_wa), f"Telegram: {membros_tg}"),
         _kpi("entrega", _pct(wa.get("taxa_entrega")), f"{wa.get('entregues', 0)} de "
              f"{wa.get('com_status', 0)} mensagens"),
         _kpi("leitura", _pct(wa.get("taxa_leitura")), "das entregues"),
@@ -305,6 +308,16 @@ def montar_html(d: dict) -> str:
             "(falha na API do GitHub) — confira o token e os logs.</p>"
         )
     conv = prod["convites"]
+    cx = prod["conexoes"]
+    # Código de /conectar gerado e não usado = migração que empacou no meio
+    # (vale 15 min) — é atrito de onboarding, merece destaque.
+    aviso_migracao = ""
+    if cx["criadas"] > cx["usadas"]:
+        aviso_migracao = (
+            f"<p class='aviso'>{cx['criadas'] - cx['usadas']} código(s) de /conectar "
+            "sem uso no período — alguém tentou migrar de canal e não completou "
+            "(o código expira em 15 min).</p>"
+        )
 
     # A quebra que diz SE os órfãos são bug ativo ou resto histórico: a data do
     # mais recente é o veredito (antiga = sai da janela sozinho).
@@ -460,13 +473,16 @@ def montar_html(d: dict) -> str:
       else "<p class='vazio'>Nenhum pedido no período — a família está servida. 🤵</p>"
   }</div>
 
-  <h2>Convites</h2>
+  <h2>Convites e migração de canal</h2>
   <div class="card">
     {_barras_horizontais([
-        ("criados", conv["criados"]),
-        ("usados", conv["usados"]),
-        ("rejeitados", conv["rejeitados"]),
+        ("convites criados", conv["criados"]),
+        ("convites usados", conv["usados"]),
+        ("convites rejeitados", conv["rejeitados"]),
+        ("códigos de /conectar", cx["criadas"]),
+        ("migrações concluídas", cx["usadas"]),
     ])}
+    {aviso_migracao}
     <p class="vazio">Curadoria: {prod["curadorias"]} rodada(s) no período,
        {prod["casos_propostos"]} caso(s) de eval proposto(s).</p>
   </div>
@@ -511,7 +527,12 @@ def montar_html(d: dict) -> str:
         ("erros no grafo", s["erros_grafo"]),
         ("falhas de parse do roteador", s["falhas_de_parse"]),
         ("mensagens de desconhecidos", s["desconhecidos"]),
+        ("proativos sem canal que aceitasse", s["proativos_falhos"]),
+        ("webhooks reentregues pela Meta", s["reentregas_meta"]),
     ])}
+    {"<p class='aviso'>Reentregas da Meta crescendo = webhook demorando a responder — "
+     "a Meta insiste por 7 dias e o dedupe segura, mas a causa é latência no POST.</p>"
+     if s["reentregas_meta"] > 5 else ""}
     {detalhe_orfaos}
     <p class="vazio">Para investigar UMA conversa específica (o replay passo a passo),
        use os traces no Langfuse — este painel mostra o agregado.</p>

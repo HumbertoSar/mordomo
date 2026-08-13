@@ -147,6 +147,28 @@ async def test_orfaos_por_tipo_diagnostica_o_kpi():
     assert ultimo == queries._dia(datetime.now(UTC))
 
 
+async def test_migracao_e_sinais_de_canal_aparecem_no_placar():
+    desde = datetime.now(UTC) - timedelta(hours=1)
+    orfaos_antes = await queries.orfaos(desde)
+
+    # todos nascem fora de turno, por desenho
+    await emitir("connect_created", 1)
+    await emitir("connect_used", 1, canal="whatsapp")
+    await emitir("proactive_failed", 2, canais=["whatsapp"], tamanho=10)
+    await emitir("message_duplicated", canal="whatsapp", wamid="wamid.teste")
+
+    prod = await queries.produto(desde)
+    assert prod["conexoes"]["criadas"] >= 1
+    assert prod["conexoes"]["usadas"] >= 1
+
+    s = await queries.saude(desde)
+    assert s["proativos_falhos"] >= 1
+    assert s["reentregas_meta"] >= 1
+
+    # e nenhum deles infla o KPI que vigia a instrumentação
+    assert await queries.orfaos(desde) == orfaos_antes
+
+
 async def test_resumo_respeita_a_janela_superior():
     # `ate` no passado: os eventos recém-emitidos ficam FORA do resumo anterior
     agora = datetime.now(UTC)

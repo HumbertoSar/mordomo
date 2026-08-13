@@ -250,6 +250,13 @@ async def produto(desde: datetime, contagens: dict[str, int] | None = None) -> d
             "usados": contagens.get("invite_used", 0),
             "rejeitados": contagens.get("invite_rejected", 0),
         },
+        # /conectar: código gerado no canal antigo × identidade anexada no novo.
+        # "usadas" atrás de "criadas" = gente gerou código e não completou a
+        # migração — atrito de onboarding que nenhuma outra métrica mostra.
+        "conexoes": {
+            "criadas": contagens.get("connect_created", 0),
+            "usadas": contagens.get("connect_used", 0),
+        },
         "dashboards_enviados": contagens.get("dashboard_sent", 0),
     }
 
@@ -360,6 +367,11 @@ async def saude(desde: datetime, contagens: dict[str, int] | None = None) -> dic
         "erros_grafo": contagens.get("error", 0),
         "falhas_de_parse": contagens.get("orchestrator_parse_error", 0),
         "desconhecidos": contagens.get("unknown_user", 0),
+        # Reentrega da Meta barrada pelo dedupe: normal em rajada curta; se
+        # CRESCER, o webhook está lento (Meta reentrega por 7 dias).
+        "reentregas_meta": contagens.get("message_duplicated", 0),
+        # Nenhum canal do membro aceitou o proativo — lembrete que ninguém viu.
+        "proativos_falhos": contagens.get("proactive_failed", 0),
     }
 
 
