@@ -439,7 +439,7 @@ def montar_html(d: dict) -> str:
   <div class="card">
     {proativos_modo}
     <p class="vazio">Fora da janela de 24h só sai template aprovado (pago).
-       A partir de 10/2026 o texto livre dentro da janela também é cobrado —
+       Texto livre dentro da janela é grátis; o template é o que custa —
        esta quebra é o que vai virar linha de custo.</p>
   </div>''' if wa.get("proativos_por_modo") else ""}
 

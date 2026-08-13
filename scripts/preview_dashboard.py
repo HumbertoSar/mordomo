@@ -132,7 +132,7 @@ async def semear() -> None:
     ev("dashboard_sent", 7, dias=7)
 
     # ── proativos no WhatsApp: dentro da janela de 24h (livre) e fora
-    # (template pago) — a quebra que vira custo a partir de 10/2026 ──────
+    # (template pago) — a quebra que mostra de onde vem o custo ──────────
     for d in (0, 1, 2, 3, 4, 5, 6):
         ev("proactive_channel", d, canal="whatsapp",
            modo="free_form" if random.random() < 0.4 else "template",

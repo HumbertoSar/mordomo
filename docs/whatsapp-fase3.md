@@ -32,9 +32,18 @@ Os quatro primeiros são **segredos**: não commitar, só `.env` (regra nº 9).
 
 ## Etapa 0 — Decisão: número de teste ou chip dedicado?
 
-**Comece pelo número de teste.** A Meta dá um número de graça junto com o app;
-ele conversa com até **5 números destinatários cadastrados** — cabe a família
-inteira, que é exatamente o público desta fase.
+> 🚨 **APRENDIDO NA PRÁTICA (13/08/2026): o número de teste NÃO serve para uma
+> família brasileira.** Ele é americano (+1) e a Meta bloqueia envio para o
+> Brasil com o erro **130497** — *"Business account is restricted from
+> messaging users in this country"*. O bloqueio vale inclusive **dentro da
+> janela de 24h**: testamos com a janela recém-aberta pelo usuário e a resposta
+> falhou do mesmo jeito. A entrada funciona (as mensagens chegam ao webhook);
+> só a saída é barrada. Para a família, é chip brasileiro ou nada.
+
+**Ainda assim, comece pelo número de teste** se o seu público for de outro país
+ou se você só quer validar a infraestrutura: ele prova webhook, assinatura,
+templates e o caminho de entrada inteiro sem custo nenhum. Ele conversa com até
+**5 números destinatários cadastrados**.
 
 | | Número de teste (grátis) | Chip dedicado |
 |---|---|---|
@@ -253,9 +262,11 @@ conversa, não um formulário — mas registre:
 
 - **Fora da janela de 24h**: cada template enviado é cobrado (conversa de
   Utilidade; centavos de real, mas não zero).
-- **A partir de outubro/2026** as mensagens free-form **dentro** da janela de
-  24h também passam a ser cobradas por mensagem. Ou seja: briefing matinal e
-  lembretes deixam de ser grátis no WhatsApp.
+- **Dentro da janela de 24h é grátis**: mensagem não-template não é cobrada
+  (a cobrança é por mensagem entregue e só vale para template, desde 07/2025).
+  Em 01/10/2026 há reajuste de TARIFA por mercado — não é o fim da gratuidade.
+  Ou seja: responder a família custa zero; o que custa é o lembrete que sai
+  fora da janela, porque esse precisa de template.
 - Consequência prática já assumida no código: proativo **só sai se houver
   conteúdo** (briefing vazio não vira mensagem), e o dashboard vai ganhar a
   dimensão de custo por canal.

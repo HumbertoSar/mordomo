@@ -78,7 +78,8 @@ agents/_base.py: fábrica NoSubagente — subagente novo = prompt + 1 linha
    não copie `_membro` local. Ids/nomes únicos por execução quando o teste
    grava no banco compartilhado da sessão.
 8. **NUNCA** adicionar Evolution API/Baileys/WPPConnect (risco real de ban do
-   número). WhatsApp = Cloud API oficial via pywa (fase 3).
+   número). WhatsApp = Cloud API oficial, falada direto por httpx (ADR-009 —
+   pywa foi descartado).
 9. Não commitar `.env`. Segredos só por variável de ambiente.
 10. **Subagente novo = `NoSubagente(nome, tools, prompt)`** (agents/_base.py) —
     não copie o padrão de nó na mão. Testes injetam fake pelo atributo
@@ -104,8 +105,9 @@ agents/_base.py: fábrica NoSubagente — subagente novo = prompt + 1 linha
 15. **Proativo no WhatsApp custa e tem regra**: dentro da janela de 24h desde a
     última mensagem DO USUÁRIO → texto livre; fora → **template aprovado**
     (imutável depois de aprovado, por isso `lembrete_v1` → `lembrete_v2`).
-    Quem decide é o adapter, nunca o núcleo. A partir de 10/2026 as duas formas
-    passam a ser cobradas — proativo sem conteúdo não deve sair.
+    Quem decide é o adapter, nunca o núcleo. **Só o template custa** (cobrança
+    por mensagem entregue desde 07/2025); texto livre dentro da janela é
+    grátis. Ainda assim, proativo sem conteúdo não deve sair.
 16. **Privacidade (ADR-005)**: payload de analytics leva chave/id, nunca
     valor nem texto de conversa; issue no repo público leva só o título
     (detalhe atrás de GITHUB_ISSUES_DETALHADAS, para repo privado); valor do
@@ -195,5 +197,5 @@ tools/lembretes testada (`tests/test_lembretes_tools.py`).
       (`docs/whatsapp-fase3.md`), subdomínio + Caddy (`docs/deploy-vps.md` §8),
       templates aprovados e a semana de canário.
 - [ ] Dashboard: painel do WhatsApp (entrega/leitura por `message_status`,
-      custo por canal com free-form cobrado a partir de 10/2026) e adoção
+      custo por canal — só templates são cobrados) e adoção
       Telegram vs. WhatsApp (o campo `canal` já viaja em todo evento)

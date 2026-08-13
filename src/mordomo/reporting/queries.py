@@ -327,8 +327,8 @@ async def canais(desde: datetime) -> dict:
             "p50_ate_leitura_s": percentil(ate_leitura, 0.50),
             "p95_ate_leitura_s": percentil(ate_leitura, 0.95),
             "erros": erros.most_common(5),
-            # free_form × template: a partir de 10/2026 as DUAS são cobradas,
-            # e a de template já é hoje — esta quebra vira linha de custo.
+            # free_form × template: só a de template é cobrada (por mensagem
+            # entregue) — esta quebra é a que vira linha de custo.
             "proativos_por_modo": Counter(
                 (e.payload or {}).get("modo") or "?" for e in proativos
             ).most_common(),
