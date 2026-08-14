@@ -214,6 +214,90 @@ WhatsApp **continua a mesma conversa**, com histórico e memória. O plano é
 canário: só você no WhatsApp por uma semana, a família no Telegram, comparando
 os dois no dashboard (o campo `canal` já viaja em todo evento).
 
+## 9. Página pública "como funciona" (+ painel do dia)
+
+`docs/arquitetura.html` é a página que explica o sistema para quem você quiser
+mostrar. Servida na VPS, ela vira **URL em vez de arquivo** — e o painel dentro
+dela deixa de ser uma cópia que apodrece: fica ao lado, regerado do banco de
+produção. Depende da seção 8 (subdomínio + certificado já emitidos).
+
+### 9.1 Gerar a pasta
+
+```bash
+cd /opt/mordomo
+docker compose exec -T bot uv run --no-sync python -m mordomo.reporting.publicar --saida /app/publico
+```
+
+Roda **dentro do container** (é lá que estão o banco e as dependências) e o
+arquivo nasce no host, em `/opt/mordomo/publico`, por causa do bind
+`./publico:/app/publico` no compose. Saem dois arquivos: `index.html` (a página,
+com o painel embutido — arquivo único, abre offline) e `dashboard.html` (o
+painel sozinho, que a página servida prefere).
+
+> O comando **não escreve em `docs/`** de propósito: isso sujaria o working tree
+> e o próximo `git pull` abortaria (foi o que o `backup.sh` ensinou). `publico/`
+> está no `.gitignore`. Para atualizar a cópia versionada, use
+> `--atualizar-docs` na sua máquina e commite.
+
+### 9.2 Bloco no Caddyfile
+
+Dentro do bloco `mordomo.SEUDOMINIO.com.br` da seção 8.2, **antes** do
+`handle { respond 404 }`:
+
+```caddyfile
+	# Página "como funciona" + painel do dia, gerados por
+	# `python -m mordomo.reporting.publicar` em /opt/mordomo/publico.
+	# ESTÁTICOS: não passam pelo bot, não ampliam a superfície dele.
+	redir /como-funciona /como-funciona/
+	handle_path /como-funciona/* {
+		encode zstd gzip
+		root * /opt/mordomo/publico
+		file_server
+	}
+```
+
+O `redir` não é decoração: sem a barra final, o caminho relativo do iframe
+resolve para `/dashboard.html` (fora da pasta) e a página cai para a cópia
+embutida — degrada em vez de quebrar, mas mostra um painel velho.
+
+Edite uma **cópia** e valide antes de instalar — este Caddyfile serve os outros
+sites da VPS, e um erro de sintaxe derruba todos:
+
+```bash
+cp -a /etc/caddy/Caddyfile /tmp/Caddyfile.novo
+nano /tmp/Caddyfile.novo
+caddy validate --config /tmp/Caddyfile.novo --adapter caddyfile
+cp -a /etc/caddy/Caddyfile /etc/caddy/Caddyfile.bak-$(date +%Y%m%d-%H%M%S)
+cat /tmp/Caddyfile.novo > /etc/caddy/Caddyfile   # `cat >` preserva dono e permissões
+systemctl reload caddy
+```
+
+### 9.3 Conferir (inclusive os vizinhos)
+
+```bash
+D=https://mordomo.SEUDOMINIO.com.br
+curl -s -o /dev/null -w "healthz: %{http_code}\n"     $D/healthz            # 200 — o bot segue de pé
+curl -s -o /dev/null -w "redir:   %{http_code}\n"     $D/como-funciona      # 302
+curl -s -o /dev/null -w "pagina:  %{http_code}\n"     $D/como-funciona/     # 200
+curl -s -o /dev/null -w "painel:  %{http_code}\n"     $D/como-funciona/dashboard.html
+curl -s -o /dev/null -w "404:     %{http_code}\n"     $D/rota-inexistente   # 404 — superfície intacta
+curl -s -o /dev/null -w "vizinho: %{http_code}\n"     https://storyrender.SEUDOMINIO.com.br/
+```
+
+Atualizar o que está publicado, depois: repita **só** o comando de 9.1.
+
+### 9.4 O que é decisão, não detalhe
+
+O que vai ao ar é um **instantâneo** publicado quando você manda, não um painel
+vivo. O ADR-005 escolheu "sem URL pública" para o dashboard: ele não mostra
+conteúdo de conversa, mas um feed contínuo dos agregados exporia a rotina da
+casa (dias de uso, quantas pessoas, horários de leitura). Se um dia quiser o
+painel ao vivo para você, o caminho é `basic_auth` do Caddy num path separado —
+não abrir este.
+
+A página é pública e indexável. Se não quiser que apareça em buscador, uma
+`<meta name="robots" content="noindex">` em `docs/arquitetura.html` e republique.
+
 ## Diagnóstico rápido
 
 ```bash
