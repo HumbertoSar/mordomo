@@ -983,13 +983,13 @@
     <div class="dashframe">
       <div class="dashframe-bar">
         <span class="dot"></span>
-        <span>o painel real, com dados reais — snapshot de 11/08/2026</span>
+        <span id="dash-rotulo">o painel real, com dados reais</span>
       </div>
       <iframe id="dash" title="Dashboard real do Mordomo — gestão à vista"></iframe>
     </div>
     <p class="note" style="margin-top:14px">
-      <span data-n="s">Isto acima não é um mock: é o <strong>painel de verdade</strong>, gerado dos primeiros dias de uso real (por isso os números pequenos — 11 turnos, 1 membro ativo). Repare no funil, na cauda de latência de 18,6 s e nos 14 eventos órfãos marcados em vermelho: o painel já está apontando o que consertar.</span>
-      <span data-n="t">Cópia literal de <code>docs/dashboard.html</code>, embutida num iframe isolado (o CSS não vaza). Regenerar: <code>uv run python -m mordomo.reporting.dashboard --dias 30</code>. Os 14 órfãos são o KPI de disciplina de instrumentação em ação — e ele cobrou: investigados, eram resto do primeiro dia de uso, e o painel ganhou a quebra de órfãos <em>por tipo e data</em> para separar bug ativo de herança. A cauda p95 de 18,6 s é o caso do ADR-006 (hosts lentos do OpenRouter) visível em produção. Este instantâneo é de antes do segundo canal: o painel de hoje tem cinco seções — Canais (adoção, entrega e leitura no WhatsApp) e Produto entraram depois.</span>
+      <span data-n="s">Isto acima não é um mock: é o <strong>painel de verdade</strong>, gerado do uso real da família (os números são pequenos porque a família é pequena). Repare no funil — quantos turnos chegam a cada degrau —, na cauda de latência e no contador de eventos órfãos em vermelho: o painel existe para apontar o que consertar, não para enfeitar.</span>
+      <span data-n="t">O painel roda num iframe isolado, para o CSS dele não vazar na página: servido, a página carrega o <code>dashboard.html</code> irmão (sempre o mais recente); como arquivo único, cai para a cópia embutida — assim ela continua abrindo offline. Regerar tudo: <code>uv run python -m mordomo.reporting.publicar</code>. O KPI de órfãos é a disciplina de instrumentação em ação, e ele já cobrou: quando marcou 14, a investigação mostrou que eram resto do primeiro dia de uso — daí o painel ter ganhado a quebra de órfãos <em>por tipo e data</em>, que separa bug ativo de herança. A cauda p95 é o caso do ADR-006 (hosts lentos do OpenRouter) visível em produção.</span>
     </p>
   </section>
 
@@ -1372,11 +1372,23 @@
     simples.addEventListener('click', function () { set('simples'); });
     tecnico.addEventListener('click', function () { set('tecnico'); });
 
-    // Dashboard embutido: srcdoc isolado + tema sincronizado + altura automática
+    // Dashboard: iframe isolado + tema sincronizado + altura automática.
+    // Servido, o dashboard.html ao lado é sempre o mais recente; como arquivo
+    // único (file://) não há irmão nenhum, e vale a cópia embutida no <script>.
     var frame = document.getElementById('dash');
     var src = document.getElementById('dash-src');
+    var rotulo = document.getElementById('dash-rotulo');
     if (frame && src) {
-      frame.srcdoc = src.textContent;
+      if (location.protocol.indexOf('http') === 0) {
+        fetch('dashboard.html', { cache: 'no-cache' })
+          .then(function (r) {
+            if (r.ok) frame.src = 'dashboard.html';
+            else frame.srcdoc = src.textContent;
+          })
+          .catch(function () { frame.srcdoc = src.textContent; });
+      } else {
+        frame.srcdoc = src.textContent;
+      }
       function sincronizar() {
         try {
           var doc = frame.contentDocument;
@@ -1385,6 +1397,13 @@
           if (tema) doc.documentElement.setAttribute('data-theme', tema);
           else doc.documentElement.removeAttribute('data-theme');
           if (doc.body) frame.style.height = (doc.body.scrollHeight + 40) + 'px';
+          // A barra diz a data que o PRÓPRIO painel carrega — nunca uma data
+          // escrita à mão, que envelheceria junto com o instantâneo.
+          var sub = doc.querySelector('.sub');
+          if (sub && rotulo) {
+            rotulo.textContent = 'o painel real, com dados reais — '
+              + sub.textContent.replace(/\s+/g, ' ').trim();
+          }
         } catch (e) { /* mantém a altura fixa de fallback */ }
       }
       frame.addEventListener('load', function () {

@@ -8,6 +8,8 @@ venv/
 *.db
 *.sqlite3
 dashboard-preview.html
+# Pasta servida pelo Caddy (gerada por mordomo.reporting.publicar)
+publico/
 dist/
 build/
 *.egg-info/

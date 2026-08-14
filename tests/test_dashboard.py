@@ -2,6 +2,8 @@
 
 from datetime import UTC, datetime, timedelta
 
+import pytest
+
 from mordomo.analytics import emitir
 from mordomo.reporting import queries
 from mordomo.reporting.dashboard import _delta, _mini_trajetoria, gerar_html
@@ -48,6 +50,42 @@ def test_dias_do_dashboard_valida_o_argumento():
     assert _dias_do_dashboard("abc") is None       # inválido: handler dá a dica de uso
     assert _dias_do_dashboard("0") == 1            # fora da faixa: limite mais próximo
     assert _dias_do_dashboard("9999") == 365
+
+
+def test_injetar_dashboard_troca_so_o_bloco_embutido():
+    from mordomo.reporting.publicar import injetar_dashboard
+
+    pagina = '<p>antes</p><script type="text/html" id="dash-src">VELHO</script><p>depois</p>'
+    saida = injetar_dashboard(pagina, "<div>NOVO</div>")
+    assert "VELHO" not in saida
+    assert "<div>NOVO</div>" in saida
+    assert saida.startswith("<p>antes</p>") and saida.endswith("<p>depois</p>")
+
+
+def test_injetar_dashboard_recusa_painel_com_script():
+    # se o dashboard ganhar JS um dia, embutir assim quebraria a página em
+    # silêncio — o erro tem que ser alto
+    from mordomo.reporting.publicar import injetar_dashboard
+
+    pagina = '<script type="text/html" id="dash-src"></script>'
+    with pytest.raises(ValueError, match="script"):
+        injetar_dashboard(pagina, "<script>alert(1)</script>")
+
+
+async def test_publicar_monta_a_pasta_sem_sujar_o_working_tree(tmp_path):
+    # na VPS, escrever em docs/ faria o próximo `git pull` abortar — foi o que
+    # aconteceu com o backup.sh. Por padrão, publicar() só toca em --saida.
+    from mordomo.reporting import publicar
+
+    antes = (publicar.PAGINA.read_bytes(), publicar.PAINEL_VERSIONADO.read_bytes())
+    destino = await publicar.montar(7, tmp_path / "publico", atualizar_docs=False)
+
+    assert (destino / "index.html").exists() and (destino / "dashboard.html").exists()
+    painel = (destino / "dashboard.html").read_text(encoding="utf-8")
+    pagina = (destino / "index.html").read_text(encoding="utf-8")
+    assert "gestão à vista" in painel
+    assert painel in pagina  # o painel do dia entrou no lugar da cópia velha
+    assert (publicar.PAGINA.read_bytes(), publicar.PAINEL_VERSIONADO.read_bytes()) == antes
 
 
 def test_delta_compara_com_o_periodo_anterior():

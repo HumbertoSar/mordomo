@@ -26,6 +26,7 @@ make replay    # como as respostas reais ficariam no WhatsApp (passo 0 da fase 3
 
 uv run python -m mordomo.reporting.dashboard --dias 30   # gera docs/dashboard.html
 uv run python scripts/preview_dashboard.py               # dashboard com dados SINTÉTICOS (mexeu no dashboard? veja aqui, sem deploy)
+uv run python -m mordomo.reporting.publicar              # pasta publico/ (página + painel do dia) servida pelo Caddy da VPS
 uv run alembic revision --autogenerate -m "..."          # nova migração
 powershell -ExecutionPolicy Bypass -File scripts/backup.ps1
 ```
