@@ -154,6 +154,10 @@
   .ledger div:nth-child(even) { padding-left: 22px; border-left: 1px solid var(--line-2); }
   .ledger dt { font-size: .8rem; color: var(--ink-2); }
   .ledger dd { margin: 0; font-family: var(--mono); font-size: .92rem; font-variant-numeric: tabular-nums; color: var(--ink); }
+  .ledger-nota {
+    font-family: var(--mono); font-size: .68rem; letter-spacing: .06em;
+    color: var(--ink-3); text-transform: uppercase; margin: 14px 0 0;
+  }
 
   /* ── Seções ────────────────────────────────────────────────────────── */
   section { padding: 58px 0; border-top: 1px solid var(--line); }
@@ -304,15 +308,16 @@
     </div>
     <div class="ledger">
       <dl>
-        <div><dt>Linhas em <span class="mono">src/</span></dt><dd>6.260</dd></div>
-        <div><dt>Testes (sem rede)</dt><dd>170</dd></div>
-        <div><dt>Nós no grafo</dt><dd>5</dd></div>
-        <div><dt>Ferramentas</dt><dd>11</dd></div>
-        <div><dt>Canais</dt><dd>2</dd></div>
-        <div><dt>Decisões (ADR)</dt><dd>9</dd></div>
-        <div><dt>Custo por pergunta</dt><dd>~US$ 0,007</dd></div>
-        <div><dt>Tipos de evento</dt><dd>20+</dd></div>
+        <div><dt>Linhas em <span class="mono">src/</span></dt><dd id="lg-linhas">6.260</dd></div>
+        <div><dt>Testes (sem rede)</dt><dd id="lg-testes">170</dd></div>
+        <div><dt>Nós no grafo</dt><dd id="lg-nos">5</dd></div>
+        <div><dt>Ferramentas</dt><dd id="lg-tools">11</dd></div>
+        <div><dt>Canais</dt><dd id="lg-canais">2</dd></div>
+        <div><dt>Decisões (ADR)</dt><dd id="lg-adrs">9</dd></div>
+        <div><dt>Custo por turno</dt><dd id="lg-custo">~US$ 0,007</dd></div>
+        <div><dt>Tipos de evento</dt><dd id="lg-eventos">20+</dd></div>
       </dl>
+      <p class="ledger-nota" id="ledger-data">dados de 14/08/2026</p>
     </div>
   </div>
 </header>
@@ -564,7 +569,7 @@
     <div class="prose">
       <p class="lede">
         <span data-n="s">O mesmo exemplo — <em>"me lembra da consulta do Davi terça às 9"</em> — em cinco passos. O detalhe importante: quem transforma "terça às 9" em uma data de verdade <strong>não é o LLM</strong>. O LLM só extrai a expressão; um parser normal, testável, resolve. LLM inventando data é o tipo de erro que ninguém perdoa.</span>
-        <span data-n="t">O mesmo pedido, agora com as raias completas e a coluna de eventos. Uma pergunta = um <code>turn_id</code>; cada hop emite o seu evento, e é isso que permite reconstruir o funil e atribuir latência e custo a um turno específico.</span>
+        <span data-n="t">O mesmo pedido, agora com as raias completas e a coluna de eventos. Um turno = um <code>turn_id</code>; cada hop emite o seu evento, e é isso que permite reconstruir o funil e atribuir latência e custo a um turno específico.</span>
       </p>
     </div>
 
@@ -745,7 +750,7 @@
           <tr>
             <td class="what">Modelos</td>
             <td class="pick"><span class="mono">OpenRouter</span> — haiku roteia, sonnet executa</td>
-            <td class="why">Um modelo barato decide o destino, um caro faz o trabalho. Cada nó emite o próprio consumo, então dá para ver quanto custa <em>rotear</em> vs. <em>executar</em> — e trocar de modelo é uma variável de ambiente.</td>
+            <td class="why">Um modelo barato decide o destino, um caro faz o trabalho. Cada nó emite o próprio consumo, então dá para ver quanto custa <em>rotear</em> vs. <em>executar</em> — e trocar de modelo é uma variável de ambiente. A quebra completa, por nó, está no painel real mais abaixo (seção 06).</td>
           </tr>
           <tr>
             <td class="what">Memória da conversa</td>
@@ -836,7 +841,7 @@
         <span class="tag">ADR-009</span>
         <h3>Responder 200 antes de pensar</h3>
         <p>O webhook <b>enfileira e devolve 200 em milissegundos</b>; o trabalho de 3 a 8 segundos acontece atrás. Toda mensagem passa por um dedupe por <code>wamid</code> gravado no banco.</p>
-        <p class="breaks">A Meta considera timeout e reentrega — por até 7 dias. A mesma pergunta viraria N lembretes, N respostas e N custos de LLM.</p>
+        <p class="breaks">A Meta considera timeout e reentrega — por até 7 dias. O mesmo turno viraria N lembretes, N respostas e N custos de LLM.</p>
       </div>
 
       <div class="card">
@@ -1107,6 +1112,11 @@
       </div>
       <figcaption>O laço fecha em bronze: nada se autodeploya. A curadoria automatiza o <em>ritual</em> (colher, relatar, propor), não o julgamento — o que o usuário queria dizer é verdade humana, não palpite de modelo.</figcaption>
     </figure>
+
+    <p class="note">
+      <span data-n="s">Isso é diferente dos testes automáticos do código (a linha "testes" lá no topo). Testes rodam em segundos, de graça, com um modelo falso — provam que a fiação do sistema funciona. Só o eval mede se o modelo de verdade está acertando, e só ele custa dinheiro.</span>
+      <span data-n="t">Duas redes, de propósito: os testes usam um LLM falso e determinístico (mesma entrada → mesma saída) para provar que o <em>encanamento</em> do grafo está correto — roteamento, propagação de estado, tratamento de falha de parse — sem gastar token nem depender de rede. Os evals usam o modelo real para medir se a <em>decisão</em> dele está certa, e são a única das duas coisas que custa dinheiro e pode regredir com o tempo.</span>
+    </p>
   </section>
 
   <!-- ══════════════ INFRA ══════════════ -->

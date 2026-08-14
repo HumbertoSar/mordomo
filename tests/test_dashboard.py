@@ -72,6 +72,65 @@ def test_injetar_dashboard_recusa_painel_com_script():
         injetar_dashboard(pagina, "<script>alert(1)</script>")
 
 
+def test_estatisticas_do_codigo_conta_a_arvore_real():
+    # limites frouxos de propósito: o projeto CRESCE, o teste não pode quebrar
+    # a cada tool ou ADR novo — só provar que a contagem é de verdade, não zero
+    from mordomo.reporting.publicar import estatisticas_do_codigo
+
+    s = estatisticas_do_codigo()
+    assert s["linhas_src"] > 3000
+    assert s["testes"] >= 170
+    assert s["nos_grafo"] == 5  # supervisor + 4 especialistas — muda só com novo agente
+    assert s["ferramentas"] >= 11
+    assert s["canais"] == 2  # TelegramAdapter + WhatsAppAdapter
+    assert s["adrs"] >= 9
+    assert s["tipos_evento"] >= 20
+
+
+def test_fmt_milhar_separa_a_brasileira():
+    from mordomo.reporting.publicar import _fmt_milhar
+
+    assert _fmt_milhar(999) == "999"
+    assert _fmt_milhar(1234) == "1.234"
+    assert _fmt_milhar(12345) == "12.345"
+
+
+def _pagina_ledger_falsa() -> str:
+    ids = [
+        "lg-linhas", "lg-testes", "lg-nos", "lg-tools", "lg-canais",
+        "lg-adrs", "lg-custo", "lg-eventos",
+    ]
+    return "".join(f'<dd id="{i}">velho</dd>' for i in ids) + '<p id="ledger-data">dados de --</p>'
+
+
+def test_injetar_estatisticas_preenche_o_ledger():
+    from mordomo.reporting.publicar import injetar_estatisticas
+
+    stats = {
+        "linhas_src": 5646, "testes": 176, "nos_grafo": 5, "ferramentas": 11,
+        "canais": 2, "adrs": 9, "tipos_evento": 27,
+    }
+    saida = injetar_estatisticas(
+        _pagina_ledger_falsa(), stats, custo_por_turno=0.00712, data="15/08/2026"
+    )
+    assert '<dd id="lg-linhas">5.646</dd>' in saida
+    assert '<dd id="lg-testes">176</dd>' in saida
+    assert '<dd id="lg-custo">~US$ 0.0071</dd>' in saida
+    assert '<p id="ledger-data">dados de 15/08/2026</p>' in saida
+
+
+def test_injetar_estatisticas_sem_turno_no_periodo_nao_inventa_custo():
+    from mordomo.reporting.publicar import injetar_estatisticas
+
+    stats = dict.fromkeys(
+        ["linhas_src", "testes", "nos_grafo", "ferramentas", "canais", "adrs", "tipos_evento"], 0
+    )
+    saida = injetar_estatisticas(
+        _pagina_ledger_falsa(), stats, custo_por_turno=None, data="15/08/2026"
+    )
+    assert '<dd id="lg-custo">—</dd>' in saida
+
+
 async def test_publicar_monta_a_pasta_sem_sujar_o_working_tree(tmp_path):
     # na VPS, escrever em docs/ faria o próximo `git pull` abortar — foi o que
     # aconteceu com o backup.sh. Por padrão, publicar() só toca em --saida.
@@ -86,6 +145,17 @@ async def test_publicar_monta_a_pasta_sem_sujar_o_working_tree(tmp_path):
     assert "gestão à vista" in painel
     assert painel in pagina  # o painel do dia entrou no lugar da cópia velha
     assert (publicar.PAGINA.read_bytes(), publicar.PAINEL_VERSIONADO.read_bytes()) == antes
+
+    # o ledger saiu do texto digitado à mão — o nº de testes bate com a árvore
+    # real, e "20+" (o vago de antes) não sobrevive
+    import re
+
+    from mordomo.reporting.publicar import estatisticas_do_codigo
+
+    m = re.search(r'id="lg-testes">(\d+)<', pagina)
+    assert m and int(m.group(1)) == estatisticas_do_codigo()["testes"]
+    assert 'id="lg-eventos">20+<' not in pagina
+    assert re.search(r'id="ledger-data">dados de \d\d/\d\d/\d\d\d\d<', pagina)
 
 
 def test_delta_compara_com_o_periodo_anterior():
