@@ -1,0 +1,1400 @@
+<title>Mordomo da Família — como funciona</title>
+<style>
+  /* ── Tokens: claro é a base; escuro redefine só as variáveis ───────── */
+  :root {
+    --ground:  #E9ECF0;
+    --card:    #FCFDFE;
+    --card-2:  #F1F4F7;
+    --ink:     #121821;
+    --ink-2:   #566373;
+    --ink-3:   #7C8899;
+    --line:    #CBD3DC;
+    --line-2:  #E0E6EC;
+    --brass:   #8E620F;
+    --brass-b: #B9871F;
+    --cobalt:  #275C93;
+    --ok:      #2C6E49;
+    --warn:    #9A4A17;
+    --shadow:  0 1px 2px rgba(18,24,33,.06), 0 8px 24px -18px rgba(18,24,33,.5);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:  #0C1117;
+      --card:    #141B24;
+      --card-2:  #1B242F;
+      --ink:     #E5EAF1;
+      --ink-2:   #97A4B4;
+      --ink-3:   #75828F;
+      --line:    #26313E;
+      --line-2:  #1E2833;
+      --brass:   #E2AF55;
+      --brass-b: #F0C878;
+      --cobalt:  #7FB2E8;
+      --ok:      #6FBF92;
+      --warn:    #E0925C;
+      --shadow:  0 1px 2px rgba(0,0,0,.4), 0 10px 30px -20px rgba(0,0,0,.9);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground:  #0C1117;
+    --card:    #141B24;
+    --card-2:  #1B242F;
+    --ink:     #E5EAF1;
+    --ink-2:   #97A4B4;
+    --ink-3:   #75828F;
+    --line:    #26313E;
+    --line-2:  #1E2833;
+    --brass:   #E2AF55;
+    --brass-b: #F0C878;
+    --cobalt:  #7FB2E8;
+    --ok:      #6FBF92;
+    --warn:    #E0925C;
+    --shadow:  0 1px 2px rgba(0,0,0,.4), 0 10px 30px -20px rgba(0,0,0,.9);
+  }
+
+  :root {
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+    --sans:  "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", sans-serif;
+    --mono:  "Cascadia Code", Consolas, ui-monospace, "SF Mono", "Roboto Mono", monospace;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16.5px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 28px; }
+  .prose { max-width: 68ch; }
+
+  h1, h2, h3 { font-family: var(--serif); font-weight: 600; text-wrap: balance; margin: 0; }
+  h1 { font-size: clamp(2.4rem, 5.4vw, 3.8rem); line-height: 1.04; letter-spacing: -.015em; }
+  h2 { font-size: clamp(1.6rem, 3vw, 2.15rem); line-height: 1.15; letter-spacing: -.01em; }
+  h3 { font-size: 1.12rem; line-height: 1.3; }
+  p  { margin: 0; }
+  a  { color: var(--ink); text-underline-offset: 3px; text-decoration-color: var(--line); }
+  a:hover { text-decoration-color: var(--brass); }
+  :focus-visible { outline: 2px solid var(--brass); outline-offset: 3px; border-radius: 2px; }
+
+  .eyebrow {
+    font-family: var(--mono); font-size: .68rem; letter-spacing: .18em;
+    text-transform: uppercase; color: var(--ink-3);
+  }
+  code, .mono { font-family: var(--mono); font-size: .86em; }
+  code { background: var(--card-2); padding: .1em .34em; border-radius: 3px; }
+
+  /* ── Cabeçalho fixo ────────────────────────────────────────────────── */
+  .bar {
+    position: sticky; top: 0; z-index: 50;
+    background: var(--ground);
+    background: color-mix(in srgb, var(--ground) 88%, transparent);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--line);
+  }
+  .bar-in { display: flex; align-items: center; gap: 20px; height: 52px; }
+  .bar-mark { font-family: var(--serif); font-size: .98rem; white-space: nowrap; }
+  .bar nav { display: flex; gap: 16px; margin-left: auto; overflow-x: auto; scrollbar-width: none; }
+  .bar nav::-webkit-scrollbar { display: none; }
+  .bar nav a {
+    font-family: var(--mono); font-size: .7rem; letter-spacing: .09em; text-transform: uppercase;
+    color: var(--ink-2); text-decoration: none; white-space: nowrap; padding: 4px 0;
+    border-bottom: 1.5px solid transparent;
+  }
+  .bar nav a:hover { color: var(--ink); border-bottom-color: var(--brass); }
+
+  .toggle {
+    display: inline-flex; align-items: center; gap: 0; flex-shrink: 0;
+    border: 1px solid var(--line); border-radius: 999px; padding: 2px; background: var(--card);
+  }
+  .toggle button {
+    font-family: var(--mono); font-size: .66rem; letter-spacing: .08em; text-transform: uppercase;
+    border: 0; background: transparent; color: var(--ink-2); cursor: pointer;
+    padding: 4px 10px; border-radius: 999px; line-height: 1.6;
+  }
+  .toggle button[aria-pressed="true"] { background: var(--ink); color: var(--ground); }
+  @media (max-width: 720px) {
+    .bar-mark { display: none; }
+    .wrap { padding: 0 18px; }
+  }
+
+  /* Camadas de leitura: inline (spans) e bloco (figuras, listas) */
+  [data-n], [data-nb] { display: none; }
+  body:not(.tecnico) [data-n="s"] { display: inline; }
+  body.tecnico [data-n="t"] { display: inline; }
+  body:not(.tecnico) [data-nb="s"] { display: block; }
+  body.tecnico [data-nb="t"] { display: block; }
+
+  .modo-dica {
+    font-family: var(--mono); font-size: .68rem; color: var(--ink-3);
+    margin-top: 18px;
+  }
+  .modo-dica b { color: var(--brass); font-weight: 400; }
+
+  /* ── Abertura ──────────────────────────────────────────────────────── */
+  header.hero { padding: 70px 0 44px; }
+  .hero .thesis {
+    font-family: var(--serif); font-size: clamp(1.12rem, 2.1vw, 1.4rem);
+    line-height: 1.5; color: var(--ink-2); max-width: 32ch; margin-top: 22px;
+  }
+  .hero-grid { display: grid; grid-template-columns: 1.35fr 1fr; gap: 48px; align-items: end; }
+  @media (max-width: 860px) { .hero-grid { grid-template-columns: 1fr; gap: 28px; } }
+
+  .ledger { border-top: 1px solid var(--ink); }
+  .ledger dl { display: grid; grid-template-columns: 1fr 1fr; margin: 0; }
+  .ledger div {
+    display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+    padding: 9px 0; border-bottom: 1px solid var(--line-2);
+  }
+  .ledger div:nth-child(odd) { padding-right: 22px; }
+  .ledger div:nth-child(even) { padding-left: 22px; border-left: 1px solid var(--line-2); }
+  .ledger dt { font-size: .8rem; color: var(--ink-2); }
+  .ledger dd { margin: 0; font-family: var(--mono); font-size: .92rem; font-variant-numeric: tabular-nums; color: var(--ink); }
+
+  /* ── Seções ────────────────────────────────────────────────────────── */
+  section { padding: 58px 0; border-top: 1px solid var(--line); }
+  .sec-head { display: flex; align-items: baseline; gap: 16px; margin-bottom: 10px; }
+  .sec-head .eyebrow { flex-shrink: 0; }
+  .lede { margin-top: 14px; color: var(--ink-2); }
+  .lede strong { color: var(--ink); font-weight: 600; }
+
+  figure { margin: 34px 0 0; }
+  .figbox {
+    background: var(--card); border: 1px solid var(--line); border-radius: 4px;
+    padding: 22px 20px; overflow-x: auto; box-shadow: var(--shadow);
+  }
+  figure svg { display: block; width: 100%; min-width: 740px; height: auto; color: var(--ink); }
+  figcaption {
+    margin-top: 12px; font-size: .84rem; color: var(--ink-2); max-width: 78ch;
+    padding-left: 12px; border-left: 2px solid var(--brass);
+  }
+
+  /* SVG compartilhado */
+  .s-box { fill: var(--card-2); stroke: var(--line); stroke-width: 1; }
+  .s-box-a { fill: none; stroke: var(--brass); stroke-width: 1.5; }
+  .s-t { font-family: var(--sans); font-size: 13px; fill: var(--ink); }
+  .s-t-b { font-family: var(--sans); font-size: 13px; font-weight: 600; fill: var(--ink); }
+  .s-s { font-family: var(--mono); font-size: 10.5px; fill: var(--ink-2); }
+  .s-p { font-family: var(--sans); font-size: 11.5px; fill: var(--ink-2); }
+  .s-l { font-family: var(--mono); font-size: 10.5px; fill: var(--ink-2); }
+  .s-z { font-family: var(--mono); font-size: 10px; letter-spacing: .14em; fill: var(--ink-3); }
+  .s-line { stroke: var(--ink-2); stroke-width: 1.2; fill: none; }
+  .s-dash { stroke: var(--cobalt); stroke-width: 1.2; fill: none; stroke-dasharray: 4 3; }
+  .s-brass { stroke: var(--brass); stroke-width: 1.4; fill: none; }
+  .s-life { stroke: var(--line); stroke-width: 1; stroke-dasharray: 3 4; }
+  .s-num { fill: var(--brass); font-family: var(--mono); font-size: 12px; }
+
+  /* ── Capacidades ───────────────────────────────────────────────────── */
+  .caps { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-top: 30px; }
+  .cap {
+    background: var(--card); border: 1px solid var(--line); border-radius: 4px;
+    padding: 18px; display: flex; flex-direction: column; gap: 8px; box-shadow: var(--shadow);
+  }
+  .cap h3 { font-size: 1.02rem; }
+  .cap .ex {
+    font-family: var(--mono); font-size: .78rem; color: var(--brass);
+  }
+  .cap p { font-size: .9rem; color: var(--ink-2); }
+
+  /* ── Tabela de stack ───────────────────────────────────────────────── */
+  .tablebox { overflow-x: auto; margin-top: 30px; border: 1px solid var(--line); border-radius: 4px; background: var(--card); }
+  table { border-collapse: collapse; width: 100%; min-width: 720px; font-size: .93rem; }
+  th, td { text-align: left; padding: 13px 16px; border-bottom: 1px solid var(--line-2); vertical-align: top; }
+  thead th {
+    font-family: var(--mono); font-size: .66rem; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--ink-3); font-weight: 400; background: var(--card-2); border-bottom: 1px solid var(--line);
+  }
+  tbody tr:last-child td { border-bottom: 0; }
+  td.what { font-weight: 600; white-space: nowrap; }
+  td.pick .mono { color: var(--ink); }
+  td.why { color: var(--ink-2); }
+
+  /* ── Cartões de decisão ────────────────────────────────────────────── */
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(310px, 1fr)); gap: 18px; margin-top: 30px; }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 4px;
+    padding: 20px; display: flex; flex-direction: column; gap: 10px; box-shadow: var(--shadow);
+  }
+  .card .tag {
+    font-family: var(--mono); font-size: .64rem; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--brass);
+  }
+  .card h3 { margin-bottom: 2px; }
+  .card p { font-size: .92rem; color: var(--ink-2); }
+  .card p b { color: var(--ink); font-weight: 600; }
+  .card .breaks {
+    font-size: .86rem; color: var(--ink-2); border-top: 1px dashed var(--line);
+    padding-top: 10px; margin-top: auto;
+  }
+  .card .breaks::before {
+    content: "sem ela"; display: block; font-family: var(--mono); font-size: .62rem;
+    letter-spacing: .14em; text-transform: uppercase; color: var(--warn); margin-bottom: 3px;
+  }
+
+  /* ── Dashboard embutido ────────────────────────────────────────────── */
+  .dashframe {
+    margin-top: 30px; border: 1px solid var(--line); border-radius: 4px;
+    background: var(--card); box-shadow: var(--shadow); overflow: hidden;
+  }
+  .dashframe-bar {
+    display: flex; align-items: center; gap: 10px; padding: 10px 16px;
+    border-bottom: 1px solid var(--line); background: var(--card-2);
+    font-family: var(--mono); font-size: .7rem; letter-spacing: .08em;
+    text-transform: uppercase; color: var(--ink-3);
+  }
+  .dashframe-bar .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); flex-shrink: 0; }
+  .dashframe iframe { display: block; width: 100%; border: 0; height: 2400px; }
+
+  /* ── História ──────────────────────────────────────────────────────── */
+  .script { counter-reset: beat; display: grid; gap: 2px; margin-top: 22px; }
+  .beat {
+    display: grid; grid-template-columns: 46px 1fr; gap: 18px; align-items: start;
+    padding: 13px 0; border-bottom: 1px solid var(--line-2);
+  }
+  .beat::before {
+    counter-increment: beat; content: counter(beat, decimal-leading-zero);
+    font-family: var(--mono); font-size: .8rem; color: var(--brass); padding-top: 3px;
+  }
+  .beat p { color: var(--ink-2); font-size: .95rem; }
+  .beat p b { color: var(--ink); font-weight: 600; }
+
+  .note {
+    margin-top: 30px; padding: 16px 18px; border-left: 2px solid var(--cobalt);
+    background: var(--card-2); font-size: .92rem; color: var(--ink-2); border-radius: 0 4px 4px 0;
+  }
+
+  footer { padding: 40px 0 70px; border-top: 1px solid var(--line); color: var(--ink-3); font-size: .84rem; }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+
+<div class="bar">
+  <div class="wrap bar-in">
+    <span class="bar-mark">🤵 Mordomo da Família</span>
+    <nav>
+      <a href="#faz">O que faz</a>
+      <a href="#mapa">Como funciona</a>
+      <a href="#turno">Um pedido</a>
+      <a href="#stack">Stack</a>
+      <a href="#decisoes">Decisões</a>
+      <a href="#medicao">Medição</a>
+      <a href="#whatsapp">WhatsApp</a>
+      <a href="#qualidade">Qualidade</a>
+      <a href="#infra">Infra</a>
+      <a href="#historia">História</a>
+    </nav>
+    <span class="toggle" role="group" aria-label="Nível de explicação">
+      <button type="button" id="b-simples" aria-pressed="true">Simples</button>
+      <button type="button" id="b-tecnico" aria-pressed="false">Técnico</button>
+    </span>
+  </div>
+</div>
+
+<header class="hero wrap">
+  <div class="hero-grid">
+    <div>
+      <p class="eyebrow">Como funciona · agosto de 2026</p>
+      <h1>Um assistente de<br>WhatsApp para<br>a família.</h1>
+      <p class="thesis">Lembretes, agenda e um cofre de documentos — atendidos por um agente LLM que registra e mede cada passo que dá.</p>
+      <p class="modo-dica">↗ o botão <b>Simples / Técnico</b> no topo troca textos <b>e diagramas</b>: conceito de um lado, implementação do outro.</p>
+    </div>
+    <div class="ledger">
+      <dl>
+        <div><dt>Linhas em <span class="mono">src/</span></dt><dd>6.260</dd></div>
+        <div><dt>Testes (sem rede)</dt><dd>170</dd></div>
+        <div><dt>Nós no grafo</dt><dd>5</dd></div>
+        <div><dt>Ferramentas</dt><dd>11</dd></div>
+        <div><dt>Canais</dt><dd>2</dd></div>
+        <div><dt>Decisões (ADR)</dt><dd>9</dd></div>
+        <div><dt>Custo por pergunta</dt><dd>~US$ 0,007</dd></div>
+        <div><dt>Tipos de evento</dt><dd>20+</dd></div>
+      </dl>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <!-- ══════════════ O QUE FAZ ══════════════ -->
+  <section id="faz">
+    <div class="sec-head"><span class="eyebrow">01</span><h2>O que ele faz</h2></div>
+    <div class="prose">
+      <p class="lede">
+        <span data-n="s">É um contato no WhatsApp (ou Telegram). A família fala com ele em português normal — texto ou áudio — e ele resolve. Não tem app, não tem menu: a interface é a conversa.</span>
+        <span data-n="t">Seis capacidades, cada uma servida por um subagente ou por código determinístico na borda. Tudo abaixo funciona por linguagem natural, exceto os comandos <code>/</code> de onboarding — esses são resolvidos pelo adapter antes de qualquer LLM.</span>
+      </p>
+    </div>
+
+    <div class="caps">
+      <div class="cap">
+        <h3>Lembretes</h3>
+        <span class="ex">"me lembra da consulta do Davi terça às 9"</span>
+        <p><span data-n="s">Entende a data em português, agenda e manda a mensagem na hora certa — inclusive recorrente ("todo dia 5").</span><span data-n="t">Data resolvida por parser determinístico (<code>tools/datas.py</code>), disparo pelo APScheduler, recorrência serializada na linha do lembrete.</span></p>
+      </div>
+      <div class="cap">
+        <h3>Agenda da família</h3>
+        <span class="ex">"o que temos no sábado?"</span>
+        <p><span data-n="s">Compromissos compartilhados: qualquer um marca, todos consultam.</span><span data-n="t">Tabela própria por ora (<code>family_events</code>); Google Calendar é o ADR-004, ainda aberto.</span></p>
+      </div>
+      <div class="cap">
+        <h3>Cofre de informações</h3>
+        <span class="ex">"qual o número da carteirinha do Davi?"</span>
+        <p><span data-n="s">Guarda CEP, documentos, números de plano — e devolve quando alguém precisa. Dá para marcar coisas como "só minhas".</span><span data-n="t">Busca por palavras sem curinga de LIKE, sem oráculo de existência; o valor é mascarado antes de voltar ao trace (ADR-005).</span></p>
+      </div>
+      <div class="cap">
+        <h3>Documentos com foto</h3>
+        <span class="ex">manda a foto do RG com a legenda "RG do Davi"</span>
+        <p><span data-n="s">Guarda a imagem e reenvia quando pedirem — "me manda o RG do Davi".</span><span data-n="t">Bytes no Postgres; o LLM só vê id + nome, quem anexa é o sistema (<code>core/anexos.py</code>).</span></p>
+      </div>
+      <div class="cap">
+        <h3>Áudio</h3>
+        <span class="ex">🎤 mensagem de voz</span>
+        <p><span data-n="s">Áudio vira texto antes de qualquer coisa — o resto do sistema nem sabe que foi falado.</span><span data-n="t">Whisper via Groq no adapter; sem <code>GROQ_API_KEY</code>, recusa simpática e o resto funciona igual.</span></p>
+      </div>
+      <div class="cap">
+        <h3>Proatividade</h3>
+        <span class="ex">⏰ "Lembrete: consulta do Davi às 9"</span>
+        <p><span data-n="s">Ele também fala primeiro: dispara lembretes e um briefing de manhã, pelo aplicativo que a pessoa realmente usa.</span><span data-n="t"><code>notify.notificar()</code> tenta o canal preferido e cai para o outro se falhar; no WhatsApp, o adapter decide texto livre vs. template (janela de 24h).</span></p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════ COMO FUNCIONA ══════════════ -->
+  <section id="mapa">
+    <div class="sec-head"><span class="eyebrow">02</span><h2>Como funciona</h2></div>
+    <div class="prose">
+      <p class="lede">
+        <span data-n="s">O padrão é <strong>supervisor + especialistas</strong>. Um LLM pequeno e barato lê a mensagem e só decide <em>quem</em> resolve. Um LLM maior, com acesso a ferramentas (funções Python que gravam e leem do banco), faz o trabalho. A conversa fica guardada por pessoa, então ele lembra do contexto entre mensagens. E nenhuma parte central sabe se está falando com WhatsApp ou Telegram — isso é problema da borda.</span>
+        <span data-n="t">Adapters traduzem cada canal para <code>InboundMessage</code>/<code>OutboundMessage</code> semânticas (ADR-001). O <code>pipeline</code> cria o <code>turn_id</code>, trava a thread e cuida do retry; o <code>StateGraph</code> roteia por <code>Command(goto=…)</code> com structured output; as tools emitem analytics via <code>emitir_de(config)</code>. O checkpointer Postgres guarda o estado por thread = membro (ADR-003).</span>
+      </p>
+    </div>
+
+    <!-- SIMPLES: o padrão de agente -->
+    <figure data-nb="s">
+      <div class="figbox">
+        <svg viewBox="0 0 1000 620" role="img" aria-label="Padrão supervisor e especialistas: os aplicativos passam por um tradutor, um roteador LLM escolhe o especialista, o especialista usa ferramentas que falam com o banco, e tudo deixa registro num diário de bordo.">
+          <defs>
+            <marker id="as1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+            </marker>
+            <marker id="as1c" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="var(--cobalt)"/>
+            </marker>
+          </defs>
+
+          <rect class="s-box" x="150" y="30" width="190" height="52" rx="3"/>
+          <text class="s-t-b" x="245" y="53" text-anchor="middle">WhatsApp</text>
+          <text class="s-p" x="245" y="71" text-anchor="middle">o app da família</text>
+          <rect class="s-box" x="380" y="30" width="190" height="52" rx="3"/>
+          <text class="s-t-b" x="475" y="53" text-anchor="middle">Telegram</text>
+          <text class="s-p" x="475" y="71" text-anchor="middle">o canal de testes</text>
+
+          <line class="s-line" x1="245" y1="82" x2="330" y2="116" marker-end="url(#as1)"/>
+          <line class="s-line" x1="475" y1="82" x2="390" y2="116" marker-end="url(#as1)"/>
+
+          <rect class="s-box-a" x="150" y="120" width="420" height="58" rx="3"/>
+          <text class="s-t-b" x="360" y="145" text-anchor="middle">Tradutor (um por aplicativo)</text>
+          <text class="s-p" x="360" y="164" text-anchor="middle">converte cada app para um formato interno único — o resto do sistema não sabe o canal</text>
+
+          <line class="s-line" x1="360" y1="178" x2="360" y2="212" marker-end="url(#as1)"/>
+          <text class="s-l" x="372" y="200">"me lembra da consulta terça às 9"</text>
+
+          <rect class="s-box" x="150" y="216" width="420" height="58" rx="3"/>
+          <text class="s-t-b" x="360" y="241" text-anchor="middle">Roteador — um LLM pequeno e barato</text>
+          <text class="s-p" x="360" y="260" text-anchor="middle">só classifica: "isso é assunto de lembrete" — não executa nada</text>
+
+          <line class="s-line" x1="360" y1="274" x2="207" y2="310" marker-end="url(#as1)"/>
+          <line class="s-line" x1="360" y1="274" x2="322" y2="310" marker-end="url(#as1)"/>
+          <line class="s-line" x1="360" y1="274" x2="437" y2="310" marker-end="url(#as1)"/>
+          <line class="s-line" x1="360" y1="274" x2="551" y2="310" marker-end="url(#as1)"/>
+
+          <rect class="s-box" x="150" y="314" width="115" height="48" rx="3"/>
+          <text class="s-t" x="207" y="342" text-anchor="middle">Lembretes</text>
+          <rect class="s-box" x="265" y="314" width="115" height="48" rx="3"/>
+          <text class="s-t" x="322" y="342" text-anchor="middle">Agenda</text>
+          <rect class="s-box" x="380" y="314" width="115" height="48" rx="3"/>
+          <text class="s-t" x="437" y="342" text-anchor="middle">Cofre</text>
+          <rect class="s-box" x="495" y="314" width="115" height="48" rx="3"/>
+          <text class="s-t" x="551" y="342" text-anchor="middle">Resposta direta</text>
+          <text class="s-p" x="626" y="342">← especialistas: um LLM maior,</text>
+          <text class="s-p" x="640" y="358">cada um com poucas ferramentas</text>
+
+          <line class="s-line" x1="360" y1="362" x2="360" y2="396" marker-end="url(#as1)"/>
+
+          <rect class="s-box" x="150" y="400" width="420" height="58" rx="3"/>
+          <text class="s-t-b" x="360" y="425" text-anchor="middle">Ferramentas</text>
+          <text class="s-p" x="360" y="444" text-anchor="middle">funções Python que o LLM pode chamar: criar lembrete, buscar info, listar agenda…</text>
+
+          <line class="s-line" x1="360" y1="458" x2="360" y2="492" marker-end="url(#as1)"/>
+
+          <rect class="s-box-a" x="150" y="496" width="420" height="58" rx="3"/>
+          <text class="s-t-b" x="360" y="521" text-anchor="middle">Banco de dados</text>
+          <text class="s-p" x="360" y="540" text-anchor="middle">dados da família + a memória da conversa de cada pessoa</text>
+
+          <!-- diário de bordo -->
+          <rect class="s-box" x="700" y="400" width="260" height="76" rx="3"/>
+          <text class="s-t-b" x="830" y="428" text-anchor="middle">Diário de bordo</text>
+          <text class="s-p" x="830" y="447" text-anchor="middle">cada passo vira um registro:</text>
+          <text class="s-p" x="830" y="464" text-anchor="middle">recebeu, decidiu, executou, respondeu</text>
+
+          <path class="s-dash" d="M570,245 L830,245 L830,396" marker-end="url(#as1c)"/>
+          <path class="s-dash" d="M610,340 L830,340" />
+          <path class="s-dash" d="M570,429 L696,429" marker-end="url(#as1c)"/>
+          <text class="s-l" x="640" y="237" fill="var(--cobalt)">registra sem interromper</text>
+
+          <text class="s-p" x="150" y="596">A resposta volta pelo mesmo caminho: o especialista escreve, o tradutor formata para o app da pessoa.</text>
+        </svg>
+      </div>
+      <figcaption>O padrão em uma frase: <strong>um LLM barato decide, um LLM caro executa, e ferramentas fazem o trabalho de verdade</strong>. O diário de bordo (pontilhado) observa tudo, mas nunca segura a conversa.</figcaption>
+    </figure>
+
+    <!-- TÉCNICO: o mapa real -->
+    <figure data-nb="t">
+      <div class="figbox">
+        <svg viewBox="0 0 1120 706" role="img" aria-label="Mapa da implementação: dois canais convergem para o contrato interno, depois pipeline, supervisor, cinco nós, ferramentas e Postgres; um trilho pontilhado leva os eventos de telemetria.">
+          <defs>
+            <marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+            </marker>
+            <marker id="a1c" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="var(--cobalt)"/>
+            </marker>
+          </defs>
+
+          <text class="s-z" transform="rotate(-90 30 75)" x="30" y="75" text-anchor="middle">BORDA</text>
+          <text class="s-z" transform="rotate(-90 30 272)" x="30" y="272" text-anchor="middle">GATEWAY</text>
+          <text class="s-z" transform="rotate(-90 30 465)" x="30" y="465" text-anchor="middle">NÚCLEO</text>
+          <text class="s-z" transform="rotate(-90 30 630)" x="30" y="630" text-anchor="middle">DADOS</text>
+
+          <rect class="s-box" x="100" y="40" width="330" height="62" rx="3"/>
+          <text class="s-t-b" x="118" y="66">Telegram · aiogram</text>
+          <text class="s-s" x="118" y="86">long polling · debounce 1,5 s</text>
+
+          <rect class="s-box" x="470" y="40" width="330" height="62" rx="3"/>
+          <text class="s-t-b" x="488" y="66">WhatsApp · Cloud API</text>
+          <text class="s-s" x="488" y="86">webhook assinado → fila → 200 na hora</text>
+
+          <line class="s-line" x1="265" y1="102" x2="265" y2="144" marker-end="url(#a1)"/>
+          <line class="s-line" x1="635" y1="102" x2="635" y2="144" marker-end="url(#a1)"/>
+          <text class="s-l" x="450" y="128" text-anchor="middle">InboundMessage</text>
+
+          <rect class="s-box-a" x="100" y="146" width="700" height="54" rx="3"/>
+          <text class="s-t-b" x="118" y="171">channels/contract.py — contrato semântico</text>
+          <text class="s-s" x="118" y="190">texto + intenção (confirmar / escolher), nunca widget concreto — plan_rendering() degrada por canal</text>
+
+          <line class="s-line" x1="450" y1="200" x2="450" y2="238" marker-end="url(#a1)"/>
+          <text class="s-l" x="460" y="223">membro resolvido (identity.py) + texto agregado</text>
+
+          <rect class="s-box" x="100" y="240" width="700" height="66" rx="3"/>
+          <text class="s-t-b" x="118" y="266">core/pipeline.py</text>
+          <text class="s-s" x="118" y="286">nasce o turn_id · lock por thread · retry com trava de efeito (core/efeitos.py)</text>
+
+          <line class="s-line" x1="450" y1="306" x2="450" y2="344" marker-end="url(#a1)"/>
+          <text class="s-l" x="460" y="329">grafo.ainvoke(estado, config)</text>
+
+          <rect class="s-box-a" x="350" y="346" width="200" height="56" rx="3"/>
+          <text class="s-t-b" x="450" y="371" text-anchor="middle">supervisor</text>
+          <text class="s-s" x="450" y="390" text-anchor="middle">haiku · structured output</text>
+          <text class="s-l" x="562" y="376">Command(goto=…)</text>
+
+          <line class="s-line" x1="450" y1="402" x2="166" y2="438" marker-end="url(#a1)"/>
+          <line class="s-line" x1="450" y1="402" x2="308" y2="438" marker-end="url(#a1)"/>
+          <line class="s-line" x1="450" y1="402" x2="450" y2="438" marker-end="url(#a1)"/>
+          <line class="s-line" x1="450" y1="402" x2="592" y2="438" marker-end="url(#a1)"/>
+          <line class="s-line" x1="450" y1="402" x2="734" y2="438" marker-end="url(#a1)"/>
+
+          <rect class="s-box" x="100" y="440" width="132" height="54" rx="3"/>
+          <text class="s-t" x="166" y="464" text-anchor="middle">lembretes</text>
+          <text class="s-s" x="166" y="482" text-anchor="middle">sonnet</text>
+          <rect class="s-box" x="242" y="440" width="132" height="54" rx="3"/>
+          <text class="s-t" x="308" y="464" text-anchor="middle">agenda</text>
+          <text class="s-s" x="308" y="482" text-anchor="middle">sonnet</text>
+          <rect class="s-box" x="384" y="440" width="132" height="54" rx="3"/>
+          <text class="s-t" x="450" y="464" text-anchor="middle">cofre</text>
+          <text class="s-s" x="450" y="482" text-anchor="middle">sonnet</text>
+          <rect class="s-box" x="526" y="440" width="132" height="54" rx="3"/>
+          <text class="s-t" x="592" y="464" text-anchor="middle">pedido</text>
+          <text class="s-s" x="592" y="482" text-anchor="middle">sem LLM</text>
+          <rect class="s-box" x="668" y="440" width="132" height="54" rx="3"/>
+          <text class="s-t" x="734" y="464" text-anchor="middle">responder</text>
+          <text class="s-s" x="734" y="482" text-anchor="middle">END</text>
+
+          <line class="s-line" x1="166" y1="494" x2="166" y2="522" marker-end="url(#a1)"/>
+          <line class="s-line" x1="308" y1="494" x2="308" y2="522" marker-end="url(#a1)"/>
+          <line class="s-line" x1="450" y1="494" x2="450" y2="522" marker-end="url(#a1)"/>
+          <line class="s-line" x1="592" y1="494" x2="592" y2="522" marker-end="url(#a1)"/>
+
+          <rect class="s-box" x="100" y="524" width="700" height="66" rx="3"/>
+          <text class="s-t-b" x="118" y="550">tools/ — 11 ferramentas com @tool</text>
+          <text class="s-s" x="118" y="570">criar_lembrete · listar · cancelar · criar_evento · listar_agenda · guardar_info · buscar_info · apagar · documentos</text>
+
+          <line class="s-line" x1="450" y1="590" x2="450" y2="624" marker-end="url(#a1)"/>
+          <text class="s-l" x="460" y="611">SQLAlchemy async</text>
+
+          <rect class="s-box-a" x="100" y="626" width="700" height="56" rx="3"/>
+          <text class="s-t-b" x="118" y="651">PostgreSQL 16</text>
+          <text class="s-s" x="118" y="670">members · reminders · family_events · vault_items · documents · product_events · checkpoints</text>
+
+          <rect class="s-box" x="836" y="146" width="264" height="54" rx="3"/>
+          <text class="s-t-b" x="854" y="171">product_events</text>
+          <text class="s-s" x="854" y="190">o funil, uma linha por fato</text>
+          <rect class="s-box" x="836" y="216" width="264" height="54" rx="3"/>
+          <text class="s-t-b" x="854" y="241">Langfuse</text>
+          <text class="s-s" x="854" y="260">trace do turno, via callbacks</text>
+
+          <line class="s-dash" x1="800" y1="272" x2="826" y2="272"/>
+          <line class="s-dash" x1="800" y1="467" x2="826" y2="467"/>
+          <line class="s-dash" x1="800" y1="557" x2="826" y2="557"/>
+          <path class="s-dash" d="M826,557 L826,176 L830,176" marker-end="url(#a1c)"/>
+          <path class="s-dash" d="M812,272 L812,243 L830,243" marker-end="url(#a1c)"/>
+          <text class="s-l" transform="rotate(-90 850 400)" x="850" y="400" text-anchor="middle" fill="var(--cobalt)">todo evento carrega o mesmo turn_id</text>
+        </svg>
+      </div>
+      <figcaption>O caminho da conversa desce em linha reta (sólido); a telemetria sai pelo lado (pontilhado) — falha de analytics não derruba a resposta. As duas caixas de canal são as <em>únicas</em> que sabem que existe Telegram ou WhatsApp.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ══════════════ UM PEDIDO ══════════════ -->
+  <section id="turno">
+    <div class="sec-head"><span class="eyebrow">03</span><h2>Um pedido, do começo ao fim</h2></div>
+    <div class="prose">
+      <p class="lede">
+        <span data-n="s">O mesmo exemplo — <em>"me lembra da consulta do Davi terça às 9"</em> — em cinco passos. O detalhe importante: quem transforma "terça às 9" em uma data de verdade <strong>não é o LLM</strong>. O LLM só extrai a expressão; um parser normal, testável, resolve. LLM inventando data é o tipo de erro que ninguém perdoa.</span>
+        <span data-n="t">O mesmo pedido, agora com as raias completas e a coluna de eventos. Uma pergunta = um <code>turn_id</code>; cada hop emite o seu evento, e é isso que permite reconstruir o funil e atribuir latência e custo a um turno específico.</span>
+      </p>
+    </div>
+
+    <!-- SIMPLES: 5 passos -->
+    <figure data-nb="s">
+      <div class="figbox">
+        <svg viewBox="0 0 1060 330" role="img" aria-label="Cinco passos de um pedido: a pessoa escreve, o roteador classifica, o especialista chama a ferramenta, a ferramenta grava e agenda, a resposta volta.">
+          <defs>
+            <marker id="as2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text class="s-num" x="30" y="40">1</text>
+          <rect class="s-box" x="30" y="52" width="180" height="86" rx="3"/>
+          <text class="s-t-b" x="46" y="78">A pessoa escreve</text>
+          <text class="s-p" x="46" y="99">"me lembra da consulta</text>
+          <text class="s-p" x="46" y="116">do Davi terça às 9"</text>
+
+          <line class="s-line" x1="210" y1="95" x2="238" y2="95" marker-end="url(#as2)"/>
+
+          <text class="s-num" x="242" y="40">2</text>
+          <rect class="s-box" x="242" y="52" width="180" height="86" rx="3"/>
+          <text class="s-t-b" x="258" y="78">O roteador lê</text>
+          <text class="s-p" x="258" y="99">LLM barato decide:</text>
+          <text class="s-p" x="258" y="116">"assunto de lembrete"</text>
+
+          <line class="s-line" x1="422" y1="95" x2="450" y2="95" marker-end="url(#as2)"/>
+
+          <text class="s-num" x="454" y="40">3</text>
+          <rect class="s-box" x="454" y="52" width="180" height="86" rx="3"/>
+          <text class="s-t-b" x="470" y="78">O especialista age</text>
+          <text class="s-p" x="470" y="99">escolhe a ferramenta</text>
+          <text class="s-p" x="470" y="116">criar_lembrete(…)</text>
+
+          <line class="s-line" x1="634" y1="95" x2="662" y2="95" marker-end="url(#as2)"/>
+
+          <text class="s-num" x="666" y="40">4</text>
+          <rect class="s-box-a" x="666" y="52" width="180" height="86" rx="3"/>
+          <text class="s-t-b" x="682" y="78">A ferramenta grava</text>
+          <text class="s-p" x="682" y="99">parser resolve "terça às 9"</text>
+          <text class="s-p" x="682" y="116">→ salva no banco e agenda</text>
+
+          <line class="s-line" x1="846" y1="95" x2="874" y2="95" marker-end="url(#as2)"/>
+
+          <text class="s-num" x="878" y="40">5</text>
+          <rect class="s-box" x="878" y="52" width="160" height="86" rx="3"/>
+          <text class="s-t-b" x="894" y="78">A resposta volta</text>
+          <text class="s-p" x="894" y="99">"Anotado: terça,</text>
+          <text class="s-p" x="894" y="116">9h. 🤵"</text>
+
+          <path class="s-brass" d="M30,166 L30,182 L1038,182 L1038,166"/>
+          <rect x="434" y="170" width="240" height="24" rx="12" fill="var(--card)" stroke="var(--brass)" stroke-width="1.4"/>
+          <text class="s-s" x="554" y="186" text-anchor="middle" fill="var(--brass)">protocolo do pedido: a4f9c2e18b70</text>
+
+          <text class="s-p" x="30" y="232">Cada passo deixa um registro carimbado com o mesmo protocolo — quanto demorou, quanto custou, se deu certo.</text>
+          <text class="s-p" x="30" y="254">Se "terça às 9" não fizer sentido, a ferramenta devolve "não entendi a data" e o especialista PERGUNTA — nunca chuta.</text>
+          <text class="s-p" x="30" y="288" fill="var(--warn)">E na terça às 9? O agendador acorda sozinho e manda "⏰ Lembrete: consulta do Davi" — sem ninguém pedir.</text>
+        </svg>
+      </div>
+      <figcaption>Dois LLMs no caminho (um decide, um executa), mas a parte crítica — a data — é código comum: previsível, testável, com 24 casos de teste garantindo que "depois de amanhã" é sempre depois de amanhã.</figcaption>
+    </figure>
+
+    <!-- TÉCNICO: sequência completa -->
+    <figure data-nb="t">
+      <div class="figbox">
+        <svg viewBox="0 0 1120 792" role="img" aria-label="Diagrama de sequência de um turno: canal, pipeline, supervisor, subagente com ferramenta e banco, com os eventos de analytics emitidos a cada passo.">
+          <defs>
+            <marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <rect class="s-box" x="20" y="30" width="130" height="34" rx="3"/>
+          <text class="s-t" x="85" y="52" text-anchor="middle">canal</text>
+          <rect class="s-box" x="180" y="30" width="130" height="34" rx="3"/>
+          <text class="s-t" x="245" y="52" text-anchor="middle">pipeline</text>
+          <rect class="s-box" x="340" y="30" width="130" height="34" rx="3"/>
+          <text class="s-t" x="405" y="52" text-anchor="middle">supervisor</text>
+          <rect class="s-box" x="500" y="30" width="150" height="34" rx="3"/>
+          <text class="s-t" x="575" y="52" text-anchor="middle">subagente + tool</text>
+          <rect class="s-box" x="680" y="30" width="130" height="34" rx="3"/>
+          <text class="s-t" x="745" y="52" text-anchor="middle">Postgres</text>
+          <text class="s-z" x="860" y="52">EVENTO EMITIDO</text>
+          <line x1="850" y1="64" x2="1100" y2="64" class="s-life"/>
+
+          <line class="s-life" x1="85"  y1="70" x2="85"  y2="760"/>
+          <line class="s-life" x1="245" y1="70" x2="245" y2="760"/>
+          <line class="s-life" x1="405" y1="70" x2="405" y2="760"/>
+          <line class="s-life" x1="575" y1="70" x2="575" y2="760"/>
+          <line class="s-life" x1="745" y1="70" x2="745" y2="760"/>
+
+          <text class="s-l" x="90" y="96">4 mensagens curtas viram 1 texto (debounce)</text>
+          <line class="s-brass" x1="85" y1="104" x2="243" y2="104" marker-end="url(#a2)"/>
+
+          <rect class="s-box" x="200" y="122" width="180" height="30" rx="3"/>
+          <text class="s-s" x="212" y="141">turn_id + lock da thread</text>
+          <text class="s-s" x="860" y="141" fill="var(--cobalt)">message_received</text>
+
+          <text class="s-l" x="250" y="176">estado + config (member_id, turn_id)</text>
+          <line class="s-brass" x1="245" y1="184" x2="403" y2="184" marker-end="url(#a2)"/>
+
+          <rect class="s-box" x="360" y="202" width="200" height="44" rx="3"/>
+          <text class="s-s" x="372" y="220">janela: últimas 8 mensagens</text>
+          <text class="s-s" x="372" y="236">structured output → "lembretes"</text>
+          <text class="s-s" x="860" y="220" fill="var(--cobalt)">llm_usage (nó: supervisor)</text>
+          <text class="s-s" x="860" y="238" fill="var(--cobalt)">orchestrator_decision</text>
+
+          <text class="s-l" x="410" y="270">Command(goto="lembretes")</text>
+          <line class="s-brass" x1="405" y1="278" x2="573" y2="278" marker-end="url(#a2)"/>
+
+          <rect class="s-box" x="500" y="296" width="220" height="44" rx="3"/>
+          <text class="s-s" x="512" y="314">loop ReAct escolhe a tool</text>
+          <text class="s-s" x="512" y="330">resolver_data("terça às 9") ✓</text>
+          <text class="s-s" x="860" y="322" fill="var(--cobalt)">tool_called</text>
+
+          <text class="s-l" x="580" y="364">INSERT reminders + agenda no APScheduler</text>
+          <line class="s-brass" x1="575" y1="372" x2="743" y2="372" marker-end="url(#a2)"/>
+          <text class="s-s" x="860" y="376" fill="var(--cobalt)">reminder_created</text>
+
+          <line class="s-line" x1="745" y1="410" x2="577" y2="410" marker-end="url(#a2)"/>
+          <text class="s-l" x="580" y="402">id 42</text>
+          <text class="s-s" x="860" y="414" fill="var(--cobalt)">tool_result (ok=true)</text>
+
+          <text class="s-l" x="410" y="446">"Anotado: terça, 9h." (AIMessage)</text>
+          <line class="s-brass" x1="575" y1="454" x2="407" y2="454" marker-end="url(#a2)"/>
+          <text class="s-s" x="860" y="458" fill="var(--cobalt)">llm_usage (nó: lembretes)</text>
+
+          <line class="s-brass" x1="405" y1="496" x2="247" y2="496" marker-end="url(#a2)"/>
+          <text class="s-l" x="250" y="488">estado final do grafo</text>
+
+          <rect class="s-box" x="200" y="514" width="220" height="44" rx="3"/>
+          <text class="s-s" x="212" y="532">solta o lock, limpa efeitos</text>
+          <text class="s-s" x="212" y="548">OutboundMessage (semântica)</text>
+          <text class="s-s" x="860" y="532" fill="var(--cobalt)">turn_completed</text>
+          <text class="s-s" x="860" y="550" fill="var(--cobalt)">— latencia_ms, espera_fila_ms</text>
+
+          <line class="s-brass" x1="245" y1="582" x2="87" y2="582" marker-end="url(#a2)"/>
+          <text class="s-l" x="90" y="574">renderiza: texto fatiado no limite do canal</text>
+          <text class="s-s" x="860" y="586" fill="var(--cobalt)">message_sent (wamid)</text>
+
+          <line class="s-brass" x1="85" y1="620" x2="85" y2="648" marker-end="url(#a2)"/>
+          <text class="s-l" x="96" y="640">chega no celular</text>
+
+          <line x1="20" y1="672" x2="1100" y2="672" class="s-life"/>
+          <text class="s-z" x="20" y="694">MINUTOS DEPOIS — SÓ NO WHATSAPP</text>
+          <line class="s-line" x1="20" y1="722" x2="83" y2="722" marker-end="url(#as2)"/>
+          <text class="s-l" x="96" y="726">a Meta avisa: entregue, depois lida</text>
+          <text class="s-s" x="860" y="726" fill="var(--cobalt)">message_status × 2</text>
+          <text class="s-l" x="96" y="750" fill="var(--brass)">casa pelo wamid → latência até a LEITURA</text>
+        </svg>
+      </div>
+      <figcaption>As setas em bronze são o caminho da resposta; a coluna azul é o que fica gravado. O cronômetro da latência começa <em>antes</em> do lock — fila também é espera que a pessoa sentiu, e o <code>espera_fila_ms</code> vai separado para o dashboard distinguir "LLM lento" de "mensagens se atropelando".</figcaption>
+    </figure>
+  </section>
+
+  <!-- ══════════════ STACK ══════════════ -->
+  <section id="stack">
+    <div class="sec-head"><span class="eyebrow">04</span><h2>As peças</h2></div>
+    <div class="prose">
+      <p class="lede">
+        <span data-n="s">O que cada tecnologia faz no sistema — e por que essa e não a alternativa óbvia. Se você só quer a visão geral: <strong>Python + LangGraph para o agente, Postgres para tudo que precisa durar, e serviços externos (modelos, transcrição, traces) que podem faltar sem derrubar nada</strong>.</span>
+        <span data-n="t">Cada linha tem a alternativa que foi recusada e o motivo — várias viraram ADR em <code>docs/adr/</code>.</span>
+      </p>
+    </div>
+
+    <div class="tablebox">
+      <table>
+        <thead>
+          <tr><th scope="col">Camada</th><th scope="col">Escolha</th><th scope="col">Por que essa, e não a outra</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="what">Orquestração</td>
+            <td class="pick"><span class="mono">LangGraph 1.x</span> — StateGraph + Command</td>
+            <td class="why">Supervisor escrito à mão em vez do pacote pronto (ADR-002): dá controle fino do roteamento e um evento próprio quando o modelo não devolve JSON válido — sintoma exato de modelo fraco em tool calling.</td>
+          </tr>
+          <tr>
+            <td class="what">Modelos</td>
+            <td class="pick"><span class="mono">OpenRouter</span> — haiku roteia, sonnet executa</td>
+            <td class="why">Um modelo barato decide o destino, um caro faz o trabalho. Cada nó emite o próprio consumo, então dá para ver quanto custa <em>rotear</em> vs. <em>executar</em> — e trocar de modelo é uma variável de ambiente.</td>
+          </tr>
+          <tr>
+            <td class="what">Memória da conversa</td>
+            <td class="pick"><span class="mono">Checkpointer Postgres</span> do LangGraph</td>
+            <td class="why">A thread é o <em>membro</em>, não o chat (ADR-003) — migrar de app continua a mesma conversa. Ao LLM vão só as últimas 8 mensagens (ADR-007): sem janela, a entrada crescia ~72 tokens por turno, para sempre.</td>
+          </tr>
+          <tr>
+            <td class="what">Dados</td>
+            <td class="pick"><span class="mono">PostgreSQL 16</span> + SQLAlchemy 2 async + Alembic</td>
+            <td class="why">Um banco só para domínio, analytics e checkpoints — simples de operar e de fazer backup. As tabelas do LangGraph ficam fora do autogenerate (<span class="mono">include_object</span>), senão a migração as apagaria com o histórico dentro.</td>
+          </tr>
+          <tr>
+            <td class="what">Canal Telegram</td>
+            <td class="pick"><span class="mono">aiogram</span>, long polling</td>
+            <td class="why">Zero infraestrutura para começar: sem domínio, sem TLS, sem aprovação de ninguém. É o canal de desenvolvimento e o fallback da proatividade.</td>
+          </tr>
+          <tr>
+            <td class="what">Canal WhatsApp</td>
+            <td class="pick"><span class="mono">Cloud API oficial</span> via httpx + FastAPI</td>
+            <td class="why">Nada de Baileys/Evolution/WPPConnect: risco real de banir o número da família (ADR-009). Sem wrapper (pywa) também — a API é pequena, e o que dá trabalho não é o HTTP, é a regra de negócio da Meta.</td>
+          </tr>
+          <tr>
+            <td class="what">Proatividade</td>
+            <td class="pick"><span class="mono">APScheduler</span> em memória</td>
+            <td class="why">A fonte de verdade é a tabela <span class="mono">reminders</span>: os jobs são reconstruídos no boot. Sobrevive a restart sem jobstore serializado.</td>
+          </tr>
+          <tr>
+            <td class="what">Observabilidade</td>
+            <td class="pick"><span class="mono">Langfuse</span> + tabela própria <span class="mono">product_events</span></td>
+            <td class="why">São perguntas diferentes: o trace depura <em>um</em> turno; o evento soma <em>mil</em>. Sem chaves de Langfuse o bot roda igual — de propósito.</td>
+          </tr>
+          <tr>
+            <td class="what">Leitura</td>
+            <td class="pick"><span class="mono">reporting/</span> → <span class="mono">docs/dashboard.html</span></td>
+            <td class="why">A tabela guarda só fatos (tokens, ms, ok/erro); dólar, p95 e taxa de sucesso são derivados na leitura — mudar o preço de um modelo não reescreve o histórico.</td>
+          </tr>
+          <tr>
+            <td class="what">Qualidade</td>
+            <td class="pick"><span class="mono">evals/</span> offline + Langfuse Datasets + juiz LLM</td>
+            <td class="why">Datas em português são testadas sem gastar um centavo (parser determinístico); só roteamento e qualidade precisam de modelo. O histórico fica versionado em <span class="mono">history.csv</span>.</td>
+          </tr>
+          <tr>
+            <td class="what">Áudio</td>
+            <td class="pick"><span class="mono">Groq / Whisper</span> no adapter</td>
+            <td class="why">Transcrição é assunto de borda: o núcleo recebe texto e nem sabe que veio de áudio (só um booleano, para analytics).</td>
+          </tr>
+          <tr>
+            <td class="what">Infra</td>
+            <td class="pick"><span class="mono">Docker Compose</span> na VPS + Caddy no host</td>
+            <td class="why">O Caddy que já servia outros sites termina o TLS e encaminha o webhook — sem brigar pela porta 443. Backup diário em <span class="mono">.sql.gpg</span>.</td>
+          </tr>
+          <tr>
+            <td class="what">Testes</td>
+            <td class="pick"><span class="mono">pytest</span> — 164, sem rede</td>
+            <td class="why">Nenhum teste precisa de chave, Docker ou internet (SQLite em arquivo). É o que mantém o ciclo rápido e o CI trivial.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ══════════════ DECISÕES ══════════════ -->
+  <section id="decisoes">
+    <div class="sec-head"><span class="eyebrow">05</span><h2>Seis decisões que explicam o resto do código</h2></div>
+    <div class="prose">
+      <p class="lede">
+        <span data-n="s">Quase toda estranheza do código sai de uma destas seis escolhas. Cada cartão diz o problema, a decisão — e o que aconteceria sem ela, geralmente porque já aconteceu.</span>
+        <span data-n="t">Os ADRs que mais amarram o desenho. O rodapé de cada cartão é o modo de falha real que a decisão evita.</span>
+      </p>
+    </div>
+
+    <div class="cards">
+      <div class="card">
+        <span class="tag">ADR-001</span>
+        <h3>O núcleo não sabe onde está</h3>
+        <p>O grafo produz <b>intenção</b> ("confirme isto", "escolha entre estes"), nunca um botão. Cada adapter decide se vira botão, lista ou texto numerado, conforme o que o canal aguenta.</p>
+        <p class="breaks">Um <code>if canal == "telegram"</code> no meio de um subagente — e a migração para o WhatsApp viraria uma reescrita.</p>
+      </div>
+
+      <div class="card">
+        <span class="tag">ADR-003</span>
+        <h3>A conversa pertence à pessoa</h3>
+        <p>A thread do checkpointer é o <b>membro</b>, e a identidade vem sempre do <code>config</code> — jamais do que o modelo escreveu. Quem você é não é opinião do LLM.</p>
+        <p class="breaks">Bastaria alguém dizer "na verdade eu sou a Ana" para o mordomo abrir o cofre da Ana.</p>
+      </div>
+
+      <div class="card">
+        <span class="tag">ADR-009</span>
+        <h3>Responder 200 antes de pensar</h3>
+        <p>O webhook <b>enfileira e devolve 200 em milissegundos</b>; o trabalho de 3 a 8 segundos acontece atrás. Toda mensagem passa por um dedupe por <code>wamid</code> gravado no banco.</p>
+        <p class="breaks">A Meta considera timeout e reentrega — por até 7 dias. A mesma pergunta viraria N lembretes, N respostas e N custos de LLM.</p>
+      </div>
+
+      <div class="card">
+        <span class="tag">ADR-005</span>
+        <h3>Telemetria não guarda conteúdo</h3>
+        <p>Os eventos levam <b>chave e id, nunca valor nem texto</b>. O valor do cofre é mascarado antes de voltar ao trace, e a issue no repositório público leva só o título.</p>
+        <p class="breaks">"Consulta do psiquiatra do Davi" moraria no analytics — e em todos os backups dele.</p>
+      </div>
+
+      <div class="card">
+        <span class="tag">ADR-008</span>
+        <h3>No grupo, só o que é de todos</h3>
+        <p>Cofre e documentos respondem no grupo da família, mas o filtro do que é "só meu" é <b>determinístico</b>, por <code>grupo_id</code> — não uma instrução no prompt.</p>
+        <p class="breaks">A discrição do mordomo dependeria de o modelo lembrar de ser discreto.</p>
+      </div>
+
+      <div class="card">
+        <span class="tag">regra 15</span>
+        <h3><code>/conectar</code> não é <code>/vincular</code></h3>
+        <p><code>/vincular</code> cria um membro novo. Quem já existe e muda de canal usa <code>/conectar</code>, que <b>anexa a identidade ao mesmo membro</b> — o código vale 15 minutos e é chave da conta.</p>
+        <p class="breaks">Quem migrasse do Telegram para o WhatsApp viraria duas pessoas e perderia lembretes, cofre e histórico.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════ MEDIÇÃO ══════════════ -->
+  <section id="medicao">
+    <div class="sec-head"><span class="eyebrow">06</span><h2>A medição: do evento ao painel</h2></div>
+    <div class="prose">
+      <p class="lede">
+        <span data-n="s">Cada pergunta ganha um número de protocolo, e todo registro daquela pergunta carrega o mesmo número. É isso que permite responder <strong>"onde exatamente as conversas morrem?"</strong> em vez de "o bot parece meio ruim". O painel logo abaixo lê esses registros e responde três perguntas: o que a família usa, como o sistema se comporta, e se a qualidade está subindo ou caindo.</span>
+        <span data-n="t">Três chaves, do largo ao fino: <code>member_id</code> (quem), <code>session_id</code> (a conversa do dia), <code>turn_id</code> (uma pergunta e sua resposta). Evento sem <code>turn_id</code> não entra em funil nenhum — vira linha órfã, e há um KPI só para vigiar isso (tem que ficar em zero). O dashboard deriva tudo na leitura: <code>product_events</code> guarda fatos, <code>reporting/queries.py</code> calcula dólar, p95 e taxas.</span>
+      </p>
+    </div>
+
+    <!-- SIMPLES: protocolo -->
+    <figure data-nb="s">
+      <div class="figbox">
+        <svg viewBox="0 0 1080 240" role="img" aria-label="O protocolo de um pedido carimba cinco registros: recebida, entendida, executada, respondida, entregue; a queda entre etapas mostra onde as conversas falham.">
+          <defs>
+            <marker id="as3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <rect class="s-box" x="20" y="40" width="180" height="56" rx="3"/>
+          <text class="s-t" x="110" y="64" text-anchor="middle">recebida</text>
+          <text class="s-p" x="110" y="83" text-anchor="middle">a mensagem chegou</text>
+
+          <rect class="s-box" x="236" y="40" width="180" height="56" rx="3"/>
+          <text class="s-t" x="326" y="64" text-anchor="middle">entendida</text>
+          <text class="s-p" x="326" y="83" text-anchor="middle">o roteador classificou</text>
+
+          <rect class="s-box" x="452" y="40" width="180" height="56" rx="3"/>
+          <text class="s-t" x="542" y="64" text-anchor="middle">executada</text>
+          <text class="s-p" x="542" y="83" text-anchor="middle">a ferramenta rodou?</text>
+
+          <rect class="s-box" x="668" y="40" width="180" height="56" rx="3"/>
+          <text class="s-t" x="758" y="64" text-anchor="middle">respondida</text>
+          <text class="s-p" x="758" y="83" text-anchor="middle">em quantos segundos</text>
+
+          <rect class="s-box" x="884" y="40" width="176" height="56" rx="3"/>
+          <text class="s-t" x="972" y="64" text-anchor="middle">entregue</text>
+          <text class="s-p" x="972" y="83" text-anchor="middle">saiu no aplicativo</text>
+
+          <line class="s-line" x1="200" y1="68" x2="232" y2="68" marker-end="url(#as3)"/>
+          <line class="s-line" x1="416" y1="68" x2="448" y2="68" marker-end="url(#as3)"/>
+          <line class="s-line" x1="632" y1="68" x2="664" y2="68" marker-end="url(#as3)"/>
+          <line class="s-line" x1="848" y1="68" x2="880" y2="68" marker-end="url(#as3)"/>
+
+          <path class="s-brass" d="M20,116 L20,132 L1060,132 L1060,116"/>
+          <rect x="410" y="120" width="260" height="24" rx="12" fill="var(--card)" stroke="var(--brass)" stroke-width="1.4"/>
+          <text class="s-s" x="540" y="136" text-anchor="middle" fill="var(--brass)">mesmo protocolo em todos os registros</text>
+
+          <text class="s-p" x="20" y="180">Um degrau que some entre uma caixa e a próxima é uma pergunta que não virou resposta — e o painel mostra em qual degrau.</text>
+          <text class="s-p" x="20" y="204">Quando uma ferramenta falha, ela registra o <tspan fill="var(--warn)">motivo</tspan> ("não entendi a data", "não achei") — e os motivos viram um ranking do que consertar primeiro.</text>
+        </svg>
+      </div>
+      <figcaption>É a mesma lógica de um funil de e-commerce (visitou → carrinho → pagou), aplicada a conversa: cada etapa contável, cada queda explicável.</figcaption>
+    </figure>
+
+    <!-- TÉCNICO: cadeia de eventos -->
+    <figure data-nb="t">
+      <div class="figbox">
+        <svg viewBox="0 0 1080 300" role="img" aria-label="Cadeia de eventos de um turno amarrados por um mesmo turn_id, e os eventos que nascem sem turn_id por desenho.">
+          <defs>
+            <marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text class="s-z" x="20" y="28">CADEIA DE UM TURNO</text>
+
+          <rect class="s-box" x="20" y="44" width="150" height="52" rx="3"/>
+          <text class="s-s" x="95" y="68" text-anchor="middle">message_received</text>
+          <text class="s-s" x="95" y="86" text-anchor="middle" fill="var(--ink-3)">100%</text>
+
+          <rect class="s-box" x="196" y="44" width="170" height="52" rx="3"/>
+          <text class="s-s" x="281" y="68" text-anchor="middle">orchestrator_decision</text>
+          <text class="s-s" x="281" y="86" text-anchor="middle" fill="var(--ink-3)">roteou</text>
+
+          <rect class="s-box" x="392" y="44" width="130" height="52" rx="3"/>
+          <text class="s-s" x="457" y="68" text-anchor="middle">tool_called</text>
+          <text class="s-s" x="457" y="86" text-anchor="middle" fill="var(--ink-3)">tentou agir</text>
+
+          <rect class="s-box" x="548" y="44" width="150" height="52" rx="3"/>
+          <text class="s-s" x="623" y="68" text-anchor="middle">tool_result</text>
+          <text class="s-s" x="623" y="86" text-anchor="middle" fill="var(--ink-3)">ok? motivo?</text>
+
+          <rect class="s-box" x="724" y="44" width="150" height="52" rx="3"/>
+          <text class="s-s" x="799" y="68" text-anchor="middle">turn_completed</text>
+          <text class="s-s" x="799" y="86" text-anchor="middle" fill="var(--ink-3)">latência</text>
+
+          <rect class="s-box" x="900" y="44" width="160" height="52" rx="3"/>
+          <text class="s-s" x="980" y="68" text-anchor="middle">message_sent</text>
+          <text class="s-s" x="980" y="86" text-anchor="middle" fill="var(--ink-3)">saiu de verdade</text>
+
+          <line class="s-line" x1="170" y1="70" x2="194" y2="70" marker-end="url(#a3)"/>
+          <line class="s-line" x1="366" y1="70" x2="390" y2="70" marker-end="url(#a3)"/>
+          <line class="s-line" x1="522" y1="70" x2="546" y2="70" marker-end="url(#a3)"/>
+          <line class="s-line" x1="698" y1="70" x2="722" y2="70" marker-end="url(#a3)"/>
+          <line class="s-line" x1="874" y1="70" x2="898" y2="70" marker-end="url(#a3)"/>
+
+          <path class="s-brass" d="M20,116 L20,132 L1060,132 L1060,116"/>
+          <rect x="440" y="120" width="200" height="24" rx="12" fill="var(--card)" stroke="var(--brass)" stroke-width="1.4"/>
+          <text class="s-s" x="540" y="136" text-anchor="middle" fill="var(--brass)">turn_id = a4f9c2e18b70</text>
+
+          <text class="s-l" x="20" y="176">llm_usage entra por nó (supervisor vs. subagente) — é a quebra "custo de rotear vs. custo de executar".</text>
+          <text class="s-l" x="20" y="196">O campo <tspan class="s-s">motivo</tspan> do tool_result ("nao_encontrado", "data_nao_entendida") é o ranking de falhas — e a matéria-prima dos evals.</text>
+
+          <line x1="20" y1="216" x2="1060" y2="216" class="s-life"/>
+
+          <text class="s-z" x="20" y="242">FORA DO FUNIL</text>
+          <rect class="s-box" x="20" y="252" width="230" height="34" rx="3"/>
+          <text class="s-s" x="34" y="273">reminder_fired · proactive_sent</text>
+          <text class="s-l" x="266" y="266">nascem sem turn_id <tspan fill="var(--ok)">por desenho</tspan> (não vêm de uma pergunta):</text>
+          <text class="s-l" x="266" y="282">têm que estar em SEM_TURNO_POR_DESENHO, senão contam como órfãos falsos.</text>
+        </svg>
+      </div>
+      <figcaption>O mesmo <code>turn_id</code> costura os seis eventos; o dashboard lê a queda entre degraus. Eventos que nascem fora de um turno são legítimos — mas precisam ser declarados, senão poluem o KPI de órfãos.</figcaption>
+    </figure>
+
+    <!-- Dashboard real -->
+    <div class="dashframe">
+      <div class="dashframe-bar">
+        <span class="dot"></span>
+        <span>o painel real, com dados reais — snapshot de 11/08/2026</span>
+      </div>
+      <iframe id="dash" title="Dashboard real do Mordomo — gestão à vista"></iframe>
+    </div>
+    <p class="note" style="margin-top:14px">
+      <span data-n="s">Isto acima não é um mock: é o <strong>painel de verdade</strong>, gerado dos primeiros dias de uso real (por isso os números pequenos — 11 turnos, 1 membro ativo). Repare no funil, na cauda de latência de 18,6 s e nos 14 eventos órfãos marcados em vermelho: o painel já está apontando o que consertar.</span>
+      <span data-n="t">Cópia literal de <code>docs/dashboard.html</code>, embutida num iframe isolado (o CSS não vaza). Regenerar: <code>uv run python -m mordomo.reporting.dashboard --dias 30</code>. Os 14 órfãos são o KPI de disciplina de instrumentação em ação — e ele cobrou: investigados, eram resto do primeiro dia de uso, e o painel ganhou a quebra de órfãos <em>por tipo e data</em> para separar bug ativo de herança. A cauda p95 de 18,6 s é o caso do ADR-006 (hosts lentos do OpenRouter) visível em produção. Este instantâneo é de antes do segundo canal: o painel de hoje tem cinco seções — Canais (adoção, entrega e leitura no WhatsApp) e Produto entraram depois.</span>
+    </p>
+  </section>
+
+  <!-- ══════════════ WHATSAPP ══════════════ -->
+  <section id="whatsapp">
+    <div class="sec-head"><span class="eyebrow">07</span><h2>A regra do WhatsApp que muda o desenho</h2></div>
+    <div class="prose">
+      <p class="lede">
+        <span data-n="s">No WhatsApp o bot não fala quando quer. Se a pessoa não escreve há mais de 24 horas, só sai mensagem <strong>modelo, aprovada antes pela Meta</strong> — e essa é a única que custa dinheiro. Quem decide qual das duas sai é a borda; o resto do sistema só pede "avise fulano".</span>
+        <span data-n="t">Janela de 24h desde a última mensagem <em>do usuário</em>: dentro, free-form (grátis); fora, template aprovado (imutável após aprovação, cobrado por entrega desde 07/2025). O núcleo chama <code>notificar()</code> e nunca sabe qual dos dois saiu — a decisão vive no adapter, lendo <code>ultima_entrada_em</code> da identidade.</span>
+      </p>
+    </div>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 1080 262" role="img" aria-label="Linha do tempo da janela de 24 horas do WhatsApp: dentro dela o lembrete sai como texto livre e gratuito; fora dela exige template aprovado e cobrado.">
+          <defs>
+            <marker id="a4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <rect x="120" y="70" width="560" height="66" fill="var(--card-2)" stroke="var(--brass)" stroke-width="1.2" stroke-dasharray="5 4"/>
+          <text class="s-s" x="400" y="60" text-anchor="middle" fill="var(--brass)">janela aberta — 24 h desde a última mensagem DELA</text>
+
+          <line class="s-line" x1="20" y1="136" x2="1050" y2="136" marker-end="url(#a4)"/>
+          <text class="s-l" x="1040" y="158" text-anchor="end">tempo</text>
+
+          <line class="s-brass" x1="120" y1="136" x2="120" y2="96"/>
+          <circle cx="120" cy="136" r="4" fill="var(--brass)"/>
+          <text class="s-t" x="120" y="30" text-anchor="middle">14h02</text>
+          <text class="s-s" x="120" y="48" text-anchor="middle">"bom dia, mordomo"</text>
+
+          <circle cx="420" cy="136" r="4" fill="var(--ink-2)"/>
+          <text class="s-t" x="420" y="104" text-anchor="middle">19h30 · lembrete</text>
+          <text class="s-s" x="420" y="122" text-anchor="middle" fill="var(--ok)">texto livre · R$ 0,00</text>
+
+          <circle cx="680" cy="136" r="4" fill="var(--ink-2)"/>
+          <line class="s-life" x1="680" y1="70" x2="680" y2="180"/>
+          <text class="s-s" x="690" y="86" fill="var(--ink-3)">+24 h</text>
+
+          <circle cx="860" cy="136" r="4" fill="var(--warn)"/>
+          <text class="s-t" x="860" y="104" text-anchor="middle">08h00 do dia seguinte</text>
+          <text class="s-s" x="860" y="122" text-anchor="middle" fill="var(--warn)">template lembrete_v2 · cobrado</text>
+
+          <text class="s-l" x="20" y="200">Sem template configurado, o proativo fora da janela é <tspan fill="var(--warn)">engolido com aviso no log</tspan> — nunca vira erro para a família.</text>
+          <text class="s-l" x="20" y="220">Template aprovado é imutável: mudar o texto significa criar <tspan class="s-s">lembrete_v2</tspan> e esperar aprovação de novo.</text>
+          <text class="s-l" x="20" y="240">Se o canal preferido falhar (conta restrita, número bloqueado), a notificação <tspan fill="var(--ok)">cai para o outro canal</tspan> em vez de sumir.</text>
+        </svg>
+      </div>
+      <figcaption>Essa regra é a que mais empurra desenho: é a razão de existir <code>ultima_entrada_em</code> por identidade, de o custo por canal só contar templates entregues, e de a proatividade ser uma abstração em vez de uma chamada direta.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ══════════════ QUALIDADE ══════════════ -->
+  <section id="qualidade">
+    <div class="sec-head"><span class="eyebrow">08</span><h2>O ciclo que transforma erro em teste</h2></div>
+    <div class="prose">
+      <p class="lede">
+        <span data-n="s">Todo domingo o sistema relê os próprios registros, junta as frases que não entendeu e abre uma lista de casos para virar teste. Nada muda sozinho: <strong>um humano diz qual era a resposta certa</strong>, roda os testes e compara com a rodada anterior. Errou uma vez, vira teste; nunca erra a mesma coisa duas vezes sem acusar.</span>
+        <span data-n="t">A curadoria é determinística — nenhum LLM opina sobre o próprio desempenho. Ela colhe as expressões de tempo que o parser recusou (par <code>tool_called</code>/<code>tool_result</code> por turno) e abre issue com JSON pronto e <code>esperado: PREENCHER</code>. O humano preenche, roda <code>make evals</code>, e o runner mostra o delta contra o último run salvo em <code>history.csv</code>.</span>
+      </p>
+    </div>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 1080 300" role="img" aria-label="Ciclo de qualidade: produção alimenta a curadoria semanal, que gera uma issue com casos, que o humano preenche no dataset, que roda nos evals e volta como mudança de prompt ou parser.">
+          <defs>
+            <marker id="a5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <rect class="s-box-a" x="30" y="40" width="210" height="66" rx="3"/>
+          <text class="s-t-b" x="46" y="66">produção</text>
+          <text class="s-s" x="46" y="86">product_events + traces</text>
+
+          <rect class="s-box" x="300" y="40" width="230" height="66" rx="3"/>
+          <text class="s-t-b" x="316" y="66">curadoria · domingo 18h30</text>
+          <text class="s-s" x="316" y="86">colhe falhas reais, sem LLM</text>
+
+          <rect class="s-box" x="590" y="40" width="230" height="66" rx="3"/>
+          <text class="s-t-b" x="606" y="66">issue no GitHub</text>
+          <text class="s-s" x="606" y="86">JSON com esperado: PREENCHER</text>
+
+          <rect class="s-box" x="880" y="40" width="170" height="66" rx="3"/>
+          <text class="s-t-b" x="896" y="66">o humano</text>
+          <text class="s-s" x="896" y="86">diz o que era certo</text>
+
+          <line class="s-line" x1="240" y1="73" x2="296" y2="73" marker-end="url(#a5)"/>
+          <line class="s-line" x1="530" y1="73" x2="586" y2="73" marker-end="url(#a5)"/>
+          <line class="s-line" x1="820" y1="73" x2="876" y2="73" marker-end="url(#a5)"/>
+
+          <path class="s-line" d="M965,106 L965,150 L790,150" marker-end="url(#a5)"/>
+
+          <rect class="s-box" x="560" y="176" width="230" height="66" rx="3"/>
+          <text class="s-t-b" x="576" y="202">datasets/*.json</text>
+          <text class="s-s" x="576" y="222">datas · roteamento · qualidade</text>
+
+          <rect class="s-box" x="300" y="176" width="200" height="66" rx="3"/>
+          <text class="s-t-b" x="316" y="202">make evals</text>
+          <text class="s-s" x="316" y="222">delta vs. o run anterior</text>
+
+          <rect class="s-box-a" x="30" y="176" width="210" height="66" rx="3"/>
+          <text class="s-t-b" x="46" y="202">prompt / parser</text>
+          <text class="s-s" x="46" y="222">a mudança que fecha o laço</text>
+
+          <line class="s-line" x1="556" y1="209" x2="506" y2="209" marker-end="url(#a5)"/>
+          <line class="s-line" x1="296" y1="209" x2="246" y2="209" marker-end="url(#a5)"/>
+          <path class="s-brass" d="M135,176 L135,140 L135,106" marker-end="url(#a5)"/>
+          <text class="s-l" x="146" y="146" fill="var(--brass)">volta para produção</text>
+
+          <text class="s-l" x="300" y="278">A trajetória de cada eval (as barrinhas verdes no painel acima) sai do history.csv — a série antes/depois, versionada.</text>
+        </svg>
+      </div>
+      <figcaption>O laço fecha em bronze: nada se autodeploya. A curadoria automatiza o <em>ritual</em> (colher, relatar, propor), não o julgamento — o que o usuário queria dizer é verdade humana, não palpite de modelo.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ══════════════ INFRA ══════════════ -->
+  <section id="infra">
+    <div class="sec-head"><span class="eyebrow">09</span><h2>Onde isso tudo roda</h2></div>
+    <div class="prose">
+      <p class="lede">
+        <span data-n="s">Uma VPS pequena, dois contêineres e um proxy que já servia outros sites. Tudo que é caro ou complicado — modelos, transcrição, traces — é serviço de fora, e <strong>cada um pode faltar sem derrubar o bot</strong>: sem chave de transcrição, ele recusa áudio com simpatia; sem chave de traces, roda sem traces.</span>
+        <span data-n="t">Compose com perfil <code>bot</code>, Postgres preso a <code>127.0.0.1</code>, Caddy do host terminando TLS no subdomínio do webhook. Um processo, um event loop: os dois canais rodam via <code>asyncio.gather</code> com o mesmo grafo e o mesmo checkpointer. Degradação por variável vazia é padrão do projeto (Langfuse, Groq, WhatsApp).</span>
+      </p>
+    </div>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 1080 360" role="img" aria-label="Infraestrutura: a Meta e o Telegram de um lado, a VPS ao centro com Caddy, contêiner do bot e contêiner do Postgres com backup diário, e os serviços externos desligáveis do outro lado.">
+          <defs>
+            <marker id="a6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+
+          <text class="s-z" x="20" y="28">MUNDO</text>
+          <rect class="s-box" x="20" y="40" width="180" height="46" rx="3"/>
+          <text class="s-t" x="36" y="60">Meta / WhatsApp</text>
+          <text class="s-s" x="36" y="77">POST assinado</text>
+          <rect class="s-box" x="20" y="100" width="180" height="46" rx="3"/>
+          <text class="s-t" x="36" y="120">Telegram</text>
+          <text class="s-s" x="36" y="137">long polling (saída)</text>
+
+          <rect x="250" y="20" width="530" height="320" rx="4" fill="none" stroke="var(--line)" stroke-width="1.5"/>
+          <text class="s-z" x="266" y="42">VPS UBUNTU 24.04 (COMPARTILHADA)</text>
+
+          <rect class="s-box" x="272" y="56" width="180" height="54" rx="3"/>
+          <text class="s-t-b" x="288" y="79">Caddy (host)</text>
+          <text class="s-s" x="288" y="97">TLS · :443 → :8090</text>
+
+          <rect class="s-box-a" x="272" y="132" width="240" height="76" rx="3"/>
+          <text class="s-t-b" x="288" y="156">contêiner mordomo-bot</text>
+          <text class="s-s" x="288" y="175">webhook + polling + grafo</text>
+          <text class="s-s" x="288" y="192">+ APScheduler (proativo)</text>
+
+          <rect class="s-box" x="272" y="230" width="240" height="76" rx="3"/>
+          <text class="s-t-b" x="288" y="254">contêiner postgres:16</text>
+          <text class="s-s" x="288" y="273">só 127.0.0.1 — nunca a internet</text>
+          <text class="s-s" x="288" y="290">volume mordomo_pgdata</text>
+
+          <rect class="s-box" x="556" y="230" width="200" height="76" rx="3"/>
+          <text class="s-t-b" x="572" y="254">backup 03h</text>
+          <text class="s-s" x="572" y="273">pg_dump → .sql.gpg</text>
+          <text class="s-s" x="572" y="290">cron do host</text>
+
+          <line class="s-line" x1="200" y1="63" x2="268" y2="80" marker-end="url(#a6)"/>
+          <line class="s-line" x1="362" y1="110" x2="362" y2="128" marker-end="url(#a6)"/>
+          <line class="s-line" x1="392" y1="208" x2="392" y2="226" marker-end="url(#a6)"/>
+          <text class="s-l" x="402" y="222">SQL</text>
+          <line class="s-line" x1="512" y1="268" x2="552" y2="268" marker-end="url(#a6)"/>
+          <line class="s-line" x1="200" y1="123" x2="268" y2="160" marker-end="url(#a6)"/>
+
+          <text class="s-z" x="830" y="28">SERVIÇOS (TODOS DESLIGÁVEIS)</text>
+          <rect class="s-box" x="830" y="40" width="220" height="46" rx="3"/>
+          <text class="s-t" x="846" y="60">OpenRouter</text>
+          <text class="s-s" x="846" y="77">haiku + sonnet · timeout 8 s</text>
+          <rect class="s-box" x="830" y="100" width="220" height="46" rx="3"/>
+          <text class="s-t" x="846" y="120">Langfuse Cloud</text>
+          <text class="s-s" x="846" y="137">sem chave = sem trace, bot roda</text>
+          <rect class="s-box" x="830" y="160" width="220" height="46" rx="3"/>
+          <text class="s-t" x="846" y="180">Groq / Whisper</text>
+          <text class="s-s" x="846" y="197">sem chave = recusa simpática</text>
+
+          <line class="s-line" x1="512" y1="160" x2="826" y2="63" marker-end="url(#a6)"/>
+          <line class="s-line" x1="512" y1="170" x2="826" y2="123" marker-end="url(#a6)"/>
+          <line class="s-line" x1="512" y1="182" x2="826" y2="183" marker-end="url(#a6)"/>
+
+          <text class="s-l" x="272" y="330">Um processo, um event loop: os dois canais rodam em paralelo com o MESMO grafo e o MESMO checkpointer.</text>
+        </svg>
+      </div>
+      <figcaption>O bot é um contêiner só. O que sustenta a operação não é redundância — é degradação: cada serviço externo tem um caminho de "ausente" previsto, e o Postgres nunca é exposto à internet.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ══════════════ HISTÓRIA ══════════════ -->
+  <section id="historia">
+    <div class="sec-head"><span class="eyebrow">10</span><h2>A história e os objetivos</h2></div>
+    <div class="prose">
+      <p class="lede">Tudo acima é <em>o que</em> o sistema é. Esta seção é o <em>porquê</em> — em cinco parágrafos.</p>
+    </div>
+
+    <div class="script">
+      <div class="beat"><p><b>O objetivo real é aprender.</b> O projeto existe para dominar três disciplinas na prática — analytics de produto, observabilidade e evals de sistemas com LLM — e servir de portfólio. O assistente de família é o problema real que obriga essas disciplinas a funcionarem: usuários de verdade, dados sensíveis de verdade, custo de verdade.</p></div>
+      <div class="beat"><p><b>Por isso a instrumentação veio primeiro.</b> A ordem foi deliberada: antes de adicionar capacidades, cada passo do sistema já emitia eventos. Fase 1 fechou o funil (<code>turn_id</code> em tudo, custo por nó, dashboard); as fases seguintes adicionam features <em>sobre</em> essa base — nunca o contrário.</p></div>
+      <div class="beat"><p><b>O Telegram foi andaime.</b> A família não usa Telegram — usa WhatsApp. Mas o Telegram não pede domínio, TLS nem aprovação, então o produto inteiro foi construído e operado nele primeiro. A fase 3 é a migração — e ela saiu do papel: o WhatsApp está no ar (credenciais na Meta, webhook atrás do Caddy, template aprovado) e o canário roda agora com os dois canais em paralelo. Quem decide quando o Telegram vira só ambiente de desenvolvimento é a curva de adoção, medida no painel.</p></div>
+      <div class="beat"><p><b>O que ficou de aprendizado está escrito.</b> Cada decisão não óbvia virou ADR (são 9), cada regra operacional virou linha no CLAUDE.md, e cada mexida em prompt ou parser tem o antes/depois registrado no <code>history.csv</code>. A tese: em sistema com LLM, o que não é medido regride em silêncio.</p></div>
+      <div class="beat"><p><b>O que vem depois.</b> Memória de longo prazo (LangGraph Store), subagente de tarefas, curador de filmes, e-mail com <code>interrupt()</code> (human-in-the-loop de verdade), Google Calendar no lugar da tabela própria — e trazer para o painel a nota do juiz que já avalia a produção no Langfuse, para ler qualidade <em>por canal</em>. O painel de adoção Telegram × WhatsApp esse já existe: o campo <code>canal</code> vinha viajando em todo evento desde o primeiro dia, esperando o segundo canal chegar.</p></div>
+    </div>
+  </section>
+
+</main>
+
+<footer class="wrap">
+  <p>Mordomo da Família · agosto de 2026 · desenhado a partir do código em <span class="mono">src/mordomo/</span>, dos 9 ADRs em <span class="mono">docs/adr/</span> e do que a operação real ensinou.</p>
+</footer>
+
+<!-- ══════════════ DASHBOARD REAL (cópia de docs/dashboard.html) ══════════════ -->
+<script type="text/html" id="dash-src"><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mordomo — gestão à vista</title>
+<style>
+  :root {
+    --fundo:#ffffff; --texto:#1a1d21; --suave:#6b7280; --linha:#e5e7eb; --cartao:#f8fafc;
+    --alerta:#c4453f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --fundo:#0f1216; --texto:#e6e8eb; --suave:#9aa3ad; --linha:#232a32; --cartao:#161b22; }
+  }
+  :root[data-theme="dark"] {
+    --fundo:#0f1216; --texto:#e6e8eb; --suave:#9aa3ad; --linha:#232a32; --cartao:#161b22;
+  }
+  :root[data-theme="light"] {
+    --fundo:#ffffff; --texto:#1a1d21; --suave:#6b7280; --linha:#e5e7eb; --cartao:#f8fafc;
+  }
+  body { background:var(--fundo); color:var(--texto); margin:0; padding:2rem 1.25rem 4rem;
+         font:15px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif; }
+  .wrap { max-width:1000px; margin:0 auto; }
+  h1 { font-size:1.6rem; margin:0 0 .25rem; letter-spacing:-.02em; }
+  h2 { font-size:1rem; margin:2.5rem 0 .75rem; text-transform:uppercase;
+        letter-spacing:.08em; color:var(--suave); font-weight:600; }
+  h1.secao { font-size:1.25rem; margin:3.5rem 0 1rem; padding-top:1.5rem;
+              border-top:2px solid var(--linha); }
+  .secao-sub { font-size:.85rem; color:var(--suave); font-weight:400; margin-left:.5rem; }
+  td.detalhe { color:var(--suave); font-size:.78rem; }
+  .sub { color:var(--suave); margin:0 0 2rem; font-size:.9rem; }
+  .kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:.75rem; }
+  .kpi { background:var(--cartao); border:1px solid var(--linha); border-radius:10px;
+          padding:.85rem .95rem; display:flex; flex-direction:column; gap:.15rem; }
+  .kpi.alerta { border-color:var(--alerta); }
+  .kpi-val { font-size:1.5rem; font-weight:650; letter-spacing:-.02em; }
+  .kpi-rot { color:var(--suave); font-size:.8rem; }
+  .kpi-nota { color:var(--suave); font-size:.7rem; opacity:.8; }
+  .card { background:var(--cartao); border:1px solid var(--linha); border-radius:10px; padding:1rem 1.1rem; }
+  .gr { width:100%; height:auto; max-height:180px; }
+  .gr .val { font-size:9px; fill:var(--suave); text-anchor:middle; }
+  .gr .eixo { font-size:9px; fill:var(--suave); text-anchor:middle; }
+  .hb { display:grid; grid-template-columns:minmax(90px,180px) 1fr auto; gap:.6rem;
+         align-items:center; margin:.35rem 0; font-size:.88rem; }
+  .hb-rot { color:var(--suave); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .hb-trilho { background:var(--linha); border-radius:4px; height:12px; overflow:hidden; }
+  .hb-cheio { display:block; height:100%; border-radius:4px; }
+  .hb-val { font-variant-numeric:tabular-nums; color:var(--suave); font-size:.82rem; }
+  .rolar { overflow-x:auto; }
+  table { border-collapse:collapse; width:100%; font-size:.88rem; }
+  th,td { text-align:left; padding:.45rem .6rem; border-bottom:1px solid var(--linha); }
+  th { color:var(--suave); font-weight:600; font-size:.78rem; text-transform:uppercase;
+        letter-spacing:.05em; }
+  td.num { text-align:right; font-variant-numeric:tabular-nums; }
+  .vazio { color:var(--suave); font-style:italic; font-size:.88rem; }
+  .aviso { color:var(--alerta); font-size:.85rem; }
+  .rodape { margin-top:3rem; padding-top:1rem; border-top:1px solid var(--linha);
+             color:var(--suave); font-size:.8rem; }
+  code { background:var(--linha); padding:.1rem .3rem; border-radius:4px; font-size:.85em; }
+  @media (max-width: 520px) {
+    body { padding:1rem .75rem 3rem; }
+    h1 { font-size:1.2rem; }
+    h1.secao { font-size:1.05rem; margin-top:2.5rem; }
+    .kpis { grid-template-columns:repeat(2, 1fr); gap:.5rem; }
+    .kpi-val { font-size:1.15rem; }
+    .hb { grid-template-columns:minmax(64px, 100px) 1fr auto; font-size:.78rem; }
+    .card { padding:.75rem .8rem; }
+    table { font-size:.78rem; }
+  }
+</style>
+<div class="wrap">
+  <h1>🤵 Mordomo da Família — gestão à vista</h1>
+  <p class="sub">Últimos 30 dias · gerado em 11/08/2026 13:59
+     (-03)</p>
+
+  <h1 class="secao">📊 Analytics <span class="secao-sub">o que a família usa</span></h1>
+  <div class="kpis"><div class="kpi"><span class="kpi-val">11</span><span class="kpi-rot">turnos</span><span class="kpi-nota">últimos 30 dias</span></div><div class="kpi"><span class="kpi-val">1</span><span class="kpi-rot">pico de membros/dia</span></div><div class="kpi"><span class="kpi-val">4</span><span class="kpi-rot">lembretes criados</span></div><div class="kpi"><span class="kpi-val">US$ 0.0780</span><span class="kpi-rot">custo total</span></div><div class="kpi"><span class="kpi-val">US$ 0.0071</span><span class="kpi-rot">custo por turno</span></div></div>
+
+  <h2>Turnos por dia</h2>
+  <div class="card rolar"><svg class="gr" style="min-width:240px" viewBox="0 0 240 150" role="img"><rect x="0" y="12.0" width="34" height="120.0" rx="3" fill="#4f7cff"/><text class="val" x="17.0" y="8.0">11</text><text class="eixo" x="17.0" y="146">08-10</text></svg></div>
+
+  <h2>Funil do turno</h2>
+  <div class="card"><div class="hb"><span class="hb-rot">recebeu mensagem</span><span class="hb-trilho"><span class="hb-cheio" style="width:100.0%;background:#4f7cff"></span></span><span class="hb-val">11 turnos</span></div><div class="hb"><span class="hb-rot">roteou</span><span class="hb-trilho"><span class="hb-cheio" style="width:100.0%;background:#22a06b"></span></span><span class="hb-val">11 turnos</span></div><div class="hb"><span class="hb-rot">usou ferramenta</span><span class="hb-trilho"><span class="hb-cheio" style="width:36.4%;background:#e8912d"></span></span><span class="hb-val">4 turnos</span></div><div class="hb"><span class="hb-rot">concluiu o turno</span><span class="hb-trilho"><span class="hb-cheio" style="width:100.0%;background:#c4453f"></span></span><span class="hb-val">11 turnos</span></div><div class="hb"><span class="hb-rot">respondeu no canal</span><span class="hb-trilho"><span class="hb-cheio" style="width:100.0%;background:#8b5cf6"></span></span><span class="hb-val">11 turnos</span></div></div>
+
+  <h2>Para onde o supervisor roteou</h2>
+  <div class="card"><div class="hb"><span class="hb-rot">lembretes</span><span class="hb-trilho"><span class="hb-cheio" style="width:100.0%;background:#4f7cff"></span></span><span class="hb-val">8</span></div><div class="hb"><span class="hb-rot">responder</span><span class="hb-trilho"><span class="hb-cheio" style="width:75.0%;background:#22a06b"></span></span><span class="hb-val">6</span></div></div>
+
+  <h2>Lembretes</h2>
+  <div class="card">
+    <div class="hb"><span class="hb-rot">criados</span><span class="hb-trilho"><span class="hb-cheio" style="width:100.0%;background:#4f7cff"></span></span><span class="hb-val">4</span></div><div class="hb"><span class="hb-rot">disparados</span><span class="hb-trilho"><span class="hb-cheio" style="width:0.0%;background:#22a06b"></span></span><span class="hb-val">0</span></div><div class="hb"><span class="hb-rot">proativos enviados</span><span class="hb-trilho"><span class="hb-cheio" style="width:0.0%;background:#e8912d"></span></span><span class="hb-val">0</span></div>
+  </div>
+
+  <h1 class="secao">🔬 Observabilidade <span class="secao-sub">como o sistema se comporta</span></h1>
+  <div class="kpis"><div class="kpi"><span class="kpi-val">6.2s</span><span class="kpi-rot">latência p50</span></div><div class="kpi alerta"><span class="kpi-val">18.6s</span><span class="kpi-rot">latência p95</span><span class="kpi-nota">cauda</span></div><div class="kpi"><span class="kpi-val">0%</span><span class="kpi-rot">taxa de erro</span></div><div class="kpi alerta"><span class="kpi-val">14</span><span class="kpi-rot">eventos órfãos</span><span class="kpi-nota">sem turn_id — tem que ser 0</span></div></div>
+
+  <h2>Latência p95 por dia (s)</h2>
+  <div class="card rolar"><svg class="gr" style="min-width:240px" viewBox="0 0 240 150" role="img"><rect x="0" y="12.0" width="34" height="120.0" rx="3" fill="#4f7cff"/><text class="val" x="17.0" y="8.0">18.6s</text><text class="eixo" x="17.0" y="146">08-10</text></svg></div>
+
+  <h2>Distribuição de latência</h2>
+  <div class="card">
+    <div class="hb"><span class="hb-rot">&lt; 2s</span><span class="hb-trilho"><span class="hb-cheio" style="width:0.0%;background:#4f7cff"></span></span><span class="hb-val">0 turnos</span></div><div class="hb"><span class="hb-rot">2–5s</span><span class="hb-trilho"><span class="hb-cheio" style="width:75.0%;background:#22a06b"></span></span><span class="hb-val">3 turnos</span></div><div class="hb"><span class="hb-rot">5–10s</span><span class="hb-trilho"><span class="hb-cheio" style="width:100.0%;background:#e8912d"></span></span><span class="hb-val">4 turnos</span></div><div class="hb"><span class="hb-rot">&gt; 10s</span><span class="hb-trilho"><span class="hb-cheio" style="width:100.0%;background:#c4453f"></span></span><span class="hb-val">4 turnos</span></div>
+    <p class="vazio">p50 6.2s · p95 18.6s ·
+       máx 23.1s</p>
+  </div>
+
+  <h2>Custo por nó — rotear vs. executar</h2>
+  <div class="card">
+    <div class="hb"><span class="hb-rot">lembretes</span><span class="hb-trilho"><span class="hb-cheio" style="width:100.0%;background:#4f7cff"></span></span><span class="hb-val">0.0634 USD</span></div><div class="hb"><span class="hb-rot">supervisor</span><span class="hb-trilho"><span class="hb-cheio" style="width:23.1%;background:#22a06b"></span></span><span class="hb-val">0.01462 USD</span></div>
+    <div class="rolar"><table>
+      <tr><th>nó</th><th>modelo</th><th>chamadas</th><th>tokens in</th><th>tokens out</th><th>custo</th></tr>
+      <tr><td>lembretes</td><td>anthropic/claude-sonnet-4.5</td><td class='num'>6</td><td class='num'>17,069</td><td class='num'>813</td><td class='num'>US$ 0.06340</td></tr><tr><td>supervisor</td><td>anthropic/claude-haiku-4.5</td><td class='num'>11</td><td class='num'>12,262</td><td class='num'>472</td><td class='num'>US$ 0.01462</td></tr>
+    </table></div>
+
+  </div>
+
+  <h2>Ferramentas</h2>
+  <div class="card">
+    <div class="rolar"><table>
+      <tr><th>tool</th><th>ok</th><th>erro</th><th>sucesso</th></tr>
+      <tr><td>cancelar_lembrete</td><td class='num'>1</td><td class='num'>0</td><td class='num'>100%</td></tr><tr><td>criar_lembrete</td><td class='num'>3</td><td class='num'>1</td><td class='num'>75%</td></tr><tr><td>listar_lembretes</td><td class='num'>2</td><td class='num'>0</td><td class='num'>100%</td></tr>
+    </table></div>
+    <h2 style="margin-top:1.5rem">Motivos de falha</h2>
+    <div class="hb"><span class="hb-rot">data_nao_entendida</span><span class="hb-trilho"><span class="hb-cheio" style="width:100.0%;background:#4f7cff"></span></span><span class="hb-val">1</span></div>
+  </div>
+
+  <h2>Saúde</h2>
+  <div class="card">
+    <div class="hb"><span class="hb-rot">erros no grafo</span><span class="hb-trilho"><span class="hb-cheio" style="width:0.0%;background:#4f7cff"></span></span><span class="hb-val">0</span></div><div class="hb"><span class="hb-rot">falhas de parse do roteador</span><span class="hb-trilho"><span class="hb-cheio" style="width:0.0%;background:#22a06b"></span></span><span class="hb-val">0</span></div><div class="hb"><span class="hb-rot">mensagens de desconhecidos</span><span class="hb-trilho"><span class="hb-cheio" style="width:100.0%;background:#e8912d"></span></span><span class="hb-val">1</span></div>
+    <p class="vazio">Para investigar UMA conversa específica (o replay passo a passo),
+       use os traces no Langfuse — este painel mostra o agregado.</p>
+  </div>
+
+  <h1 class="secao">🧪 Evaluation <span class="secao-sub">a qualidade, medida</span></h1>
+  <div class="card">
+    <div class="rolar"><table>
+      <tr><th>eval</th><th>último resultado</th><th>trajetória</th><th>quando</th><th>commit</th><th>detalhe</th></tr>
+      <tr><td>datas_ptbr</td><td class='num'>24/24 (100%)</td><td><svg width="120" height="26" viewBox="0 0 120 26"><rect x="0" y="4.0" width="12" height="22.0" rx="2" fill="#22a06b"/><rect x="15" y="4.0" width="12" height="22.0" rx="2" fill="#22a06b"/><rect x="30" y="4.0" width="12" height="22.0" rx="2" fill="#22a06b"/><rect x="45" y="4.0" width="12" height="22.0" rx="2" fill="#22a06b"/><rect x="60" y="4.0" width="12" height="22.0" rx="2" fill="#22a06b"/><rect x="75" y="4.0" width="12" height="22.0" rx="2" fill="#22a06b"/><rect x="90" y="4.9" width="12" height="21.1" rx="2" fill="#22a06b"/><rect x="105" y="4.0" width="12" height="22.0" rx="2" fill="#22a06b"/></svg></td><td>2026-08-11 13:27</td><td><code>654ee88</code></td><td class='detalhe'>resolver_data determinístico</td></tr><tr><td>qualidade_resposta</td><td class='num'>14/14 (100%)</td><td><svg width="60" height="26" viewBox="0 0 60 26"><rect x="0" y="5.8" width="12" height="20.2" rx="2" fill="#22a06b"/><rect x="15" y="4.0" width="12" height="22.0" rx="2" fill="#22a06b"/><rect x="30" y="5.8" width="12" height="20.2" rx="2" fill="#22a06b"/><rect x="45" y="4.0" width="12" height="22.0" rx="2" fill="#22a06b"/></svg></td><td>2026-08-10 21:35</td><td><code>9fd4124</code></td><td class='detalhe'>agente=anthropic/claude-sonnet-4.5 juiz=google/gemini-2.5-fl</td></tr><tr><td>roteamento</td><td class='num'>21/22 (95%)</td><td><svg width="45" height="26" viewBox="0 0 45 26"><rect x="0" y="5.4" width="12" height="20.6" rx="2" fill="#22a06b"/><rect x="15" y="5.1" width="12" height="20.9" rx="2" fill="#22a06b"/><rect x="30" y="5.0" width="12" height="21.0" rx="2" fill="#22a06b"/></svg></td><td>2026-08-11 12:58</td><td><code>b897f67</code></td><td class='detalhe'>anthropic/claude-haiku-4.5</td></tr>
+    </table></div>
+    <p class="vazio">Fonte: evals/results/history.csv (runs salvos com --salvar).
+       Cada barra da trajetória é um run; verde ≥ 90%, laranja ≥ 70%, vermelho abaixo.</p>
+  </div>
+
+  <p class="rodape">
+    Gerado por <code>mordomo.reporting.dashboard</code> a partir de agregações sobre
+    <code>product_events</code> — nenhum conteúdo de conversa aparece aqui.
+    Custo calculado na leitura, a partir dos tokens gravados, com a tabela de
+    <code>reporting/precos.py</code>.
+  </p>
+</div>
+</script>
+
+<script>
+  (function () {
+    // Simples / Técnico
+    var simples = document.getElementById('b-simples');
+    var tecnico = document.getElementById('b-tecnico');
+    function set(modo) {
+      var t = modo === 'tecnico';
+      document.body.classList.toggle('tecnico', t);
+      simples.setAttribute('aria-pressed', String(!t));
+      tecnico.setAttribute('aria-pressed', String(t));
+    }
+    simples.addEventListener('click', function () { set('simples'); });
+    tecnico.addEventListener('click', function () { set('tecnico'); });
+
+    // Dashboard embutido: srcdoc isolado + tema sincronizado + altura automática
+    var frame = document.getElementById('dash');
+    var src = document.getElementById('dash-src');
+    if (frame && src) {
+      frame.srcdoc = src.textContent;
+      function sincronizar() {
+        try {
+          var doc = frame.contentDocument;
+          if (!doc || !doc.documentElement) return;
+          var tema = document.documentElement.getAttribute('data-theme');
+          if (tema) doc.documentElement.setAttribute('data-theme', tema);
+          else doc.documentElement.removeAttribute('data-theme');
+          if (doc.body) frame.style.height = (doc.body.scrollHeight + 40) + 'px';
+        } catch (e) { /* mantém a altura fixa de fallback */ }
+      }
+      frame.addEventListener('load', function () {
+        sincronizar();
+        setTimeout(sincronizar, 250);
+      });
+      new MutationObserver(sincronizar).observe(document.documentElement, {
+        attributes: true, attributeFilter: ['data-theme']
+      });
+      window.addEventListener('resize', sincronizar);
+    }
+  })();
+</script>
