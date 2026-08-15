@@ -5,9 +5,39 @@ OpenRouter expõe API compatível com OpenAI: uma chave, vários modelos
 o id no .env — ótimo para comparar modelos nos evals depois.
 """
 
+import asyncio
+from typing import Any
+
 from langchain_openai import ChatOpenAI
+from pydantic import Field
 
 from ..config import settings
+
+
+class LLMDeadlineExceeded(TimeoutError):
+    """Uma chamada assíncrona ao modelo excedeu seu prazo total de parede."""
+
+    def __init__(self, limite_segundos: float):
+        self.limite_segundos = limite_segundos
+        super().__init__(f"prazo total do LLM excedido ({limite_segundos:g}s)")
+
+
+class DeadlineChatOpenAI(ChatOpenAI):
+    """ChatOpenAI cujo prazo cobre somente a chamada de modelo, nunca tools."""
+
+    prazo_total_segundos: float = Field(gt=0, allow_inf_nan=False, exclude=True)
+
+    async def _agenerate(self, *args: Any, **kwargs: Any):
+        prazo = asyncio.timeout(self.prazo_total_segundos)
+        try:
+            async with prazo:
+                return await super()._agenerate(*args, **kwargs)
+        except TimeoutError as erro:
+            # Não reclassifique timeout HTTP/de dependência: só o vencimento do
+            # nosso relógio ganha a exceção específica usada pelo analytics.
+            if not prazo.expired():
+                raise
+            raise LLMDeadlineExceeded(self.prazo_total_segundos) from erro
 
 
 def chat_model(nome_modelo: str, temperatura: float = 0.0) -> ChatOpenAI:
@@ -39,7 +69,7 @@ def chat_model(nome_modelo: str, temperatura: float = 0.0) -> ChatOpenAI:
         # chamada de 10,6s no mesmo prompt (ADR-006).
         extra["provider"]["sort"] = settings.openrouter_provider_sort
 
-    return ChatOpenAI(
+    return DeadlineChatOpenAI(
         model=nome_modelo,
         api_key=settings.openrouter_api_key or "defina-OPENROUTER_API_KEY",
         base_url=settings.openrouter_base_url,
@@ -48,6 +78,7 @@ def chat_model(nome_modelo: str, temperatura: float = 0.0) -> ChatOpenAI:
         # tempo de espera do usuário, que aguardar um provedor travado.
         timeout=settings.llm_timeout_segundos,
         max_retries=settings.llm_max_retries,
+        prazo_total_segundos=settings.llm_prazo_total_segundos,
         # Cabeçalhos opcionais de atribuição do OpenRouter:
         default_headers={"X-Title": "Mordomo da Familia"},
         **({"extra_body": extra} if extra else {}),

@@ -18,6 +18,7 @@ from ..db.models import Member
 from ..observability import config_invocacao
 from . import efeitos
 from .anexos import coletar
+from .llm import LLMDeadlineExceeded
 
 log = logging.getLogger(__name__)
 
@@ -118,7 +119,7 @@ async def processar_entrada(
                 texto = _texto_de(resultado["messages"][-1].content) or "…"
                 ok = True
                 break
-            except Exception:
+            except Exception as erro:
                 ok = False
                 log.exception(
                     "Erro no grafo (membro %s, turno %s, tentativa %d)",
@@ -126,11 +127,30 @@ async def processar_entrada(
                 )
                 # Visto em produção (11/08): OpenRouter devolve 200 com choices=None
                 # e o parse explode — o retry do cliente não cobre erro de PARSE.
-                # Repetir o turno é seguro APENAS se nenhuma tool mutante rodou
-                # (senão duplicaríamos lembrete/evento) — e quem sabe disso é o
-                # próprio funil.
+                # O prazo total vive DENTRO de cada chamada do ChatOpenAI; assim,
+                # nenhuma tool é cancelada enquanto persiste um efeito.
                 efeito = await _turno_teve_efeito(turn_id)
-                await emitir_de(cfg, "error", onde="grafo", tentativa=tentativa, efeito=efeito)
+                motivo = (
+                    "timeout_llm"
+                    if isinstance(erro, LLMDeadlineExceeded)
+                    else "excecao_grafo"
+                )
+                await emitir_de(
+                    cfg,
+                    "error",
+                    onde="grafo",
+                    tentativa=tentativa,
+                    efeito=efeito,
+                    motivo=motivo,
+                    tipo_erro=type(erro).__name__,
+                    **(
+                        {"limite_segundos": erro.limite_segundos}
+                        if isinstance(erro, LLMDeadlineExceeded)
+                        else {}
+                    ),
+                )
+                # Repetir é seguro APENAS se nenhuma tool mutante rodou; a
+                # proteção por efeitos continua valendo também para timeout LLM.
                 if tentativa == 1 and not efeito:
                     continue
                 if efeito:

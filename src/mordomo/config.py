@@ -1,5 +1,6 @@
 """Configuração central via variáveis de ambiente (.env)."""
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -62,6 +63,9 @@ class Settings(BaseSettings):
     # aborta e tenta de novo. Ver docs/adr/006-latencia-e-provedores.md.
     llm_timeout_segundos: float = 8.0
     llm_max_retries: int = 2
+    # Prazo de parede de CADA chamada ao modelo. Diferente do timeout HTTP
+    # acima: keep-alives não reiniciam este relógio. Tools ficam fora dele.
+    llm_prazo_total_segundos: float = Field(default=15.0, gt=0, allow_inf_nan=False)
     openrouter_provider_sort: str = "latency"  # "latency" | "throughput" | "price" | "" (sem preferência)
     # Provedores permitidos, em ordem (CSV). Vazio = o OpenRouter escolhe.
     # ISTO NÃO É AFINAÇÃO DE LATÊNCIA — é correção de um incidente real
