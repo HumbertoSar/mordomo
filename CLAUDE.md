@@ -183,28 +183,36 @@ existência nem curinga de LIKE; backups .sql.gpg opcionais
 (BACKUP_PASSPHRASE); fábrica NoSubagente; reporting sem queries mortas;
 tools/lembretes testada (`tests/test_lembretes_tools.py`).
 
-## Roadmap (o que falta — fase 2+)
+## Roadmap (fase 2+)
+
+### Próximos
 
 - [ ] Memória de longo prazo (LangGraph Store + extração em background / LangMem)
 - [ ] Subagente Tarefas (listas por pessoa + compartilhadas)
 - [ ] Subagente Curador (TMDB + onde assistir no BR, perfil por membro)
 - [ ] Subagente Mensageiro (Gmail) com `interrupt()` — HITL de verdade
-- [ ] Recorrência de lembretes ("todo dia 5") + briefing matinal (job proativo)
-- [x] `/vincular` (onboarding sem seed script) — /convidar gera código (só
-      adulto), /vincular consome; quem convida decide o papel do convidado
-- [x] `/conectar` — migrar de canal SEM virar duas pessoas: o código gerado no
-      canal antigo anexa a identidade nova ao mesmo membro (fase 3)
 - [ ] Google Calendar no lugar da tabela própria — decidir ADR-004 (nativa vs. MCP)
-- [x] Datasets → Langfuse Datasets/Experiments (`evals/experimentos_langfuse.py`:
-      datas+roteamento; qualidade ainda só local) + Evaluator LLM-as-judge
-      "qualidade-mordomo" ativo em produção (juiz gemini, turno raiz, score 0-1)
 - [ ] Simulador de personas (OpenEvals)
-- [~] **Fase 3 WhatsApp** — código PRONTO (ADR-009: Cloud API direta, sem pywa):
-      adapter + webhook assinado + dedupe por wamid + janela de 24h/template +
-      statuses como analytics + replay (`make replay`), 25 testes sem rede.
-      Falta o que só o Humberto faz: credenciais na Meta
-      (`docs/whatsapp-fase3.md`), subdomínio + Caddy (`docs/deploy-vps.md` §8),
-      templates aprovados e a semana de canário.
-- [ ] Dashboard: painel do WhatsApp (entrega/leitura por `message_status`,
-      custo por canal — só templates são cobrados) e adoção
-      Telegram vs. WhatsApp (o campo `canal` já viaja em todo evento)
+- [~] **Canário e adoção do WhatsApp** — canal ativo em produção com um número;
+      acompanhar entrega, leitura, custo, latência e erros por ~1 semana antes de
+      migrar gradualmente o restante da família com `/conectar`.
+
+### Entregue
+
+- [x] Recorrência de lembretes (diária, semanal e mensal) + briefing matinal
+      proativo; regras persistidas e reagendadas pelo scheduler.
+- [x] `/vincular` (onboarding sem seed script) — `/convidar` gera código (só
+      adulto), `/vincular` consome; quem convida decide o papel do convidado.
+- [x] `/conectar` — migração de canal sem duplicar pessoa: o código gerado no
+      canal antigo anexa a identidade nova ao mesmo `member_id`.
+- [x] Datasets → Langfuse Datasets/Experiments (`evals/experimentos_langfuse.py`:
+      datas + roteamento; qualidade também tem histórico local) + evaluator
+      LLM-as-judge `qualidade-mordomo` ativo em produção.
+- [x] **Fase 3 WhatsApp em produção** — Cloud API direta (ADR-009), webhook
+      assinado, dedupe persistente por `wamid`, mídia, janela de 24h/templates,
+      statuses, replay, `/conectar`, Caddy e templates aprovados.
+- [x] Dashboard de canais — entrega, leitura, falhas, custo de templates, adoção
+      Telegram vs. WhatsApp e latência por canal.
+- [x] Proteção da fila contra LLM preso — prazo de parede de 15s por chamada,
+      retry seguro por efeito mutante e `timeout_llm` no analytics/dashboard
+      (ADR-006; incidente real de 15/08/2026).
