@@ -15,6 +15,8 @@
 #   gpg -d backups/mordomo_X.sql.gpg | docker compose exec -T postgres psql -U mordomo -d mordomo
 
 set -euo pipefail
+# Dumps contêm Cofre, documentos e histórico: pasta nasce 700 e arquivos 600.
+umask 077
 cd "$(dirname "$0")/.."
 
 MANTER_DIAS="${MANTER_DIAS:-30}"
