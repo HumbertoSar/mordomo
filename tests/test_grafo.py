@@ -12,7 +12,7 @@ falha de propósito)."""
 
 from langchain_core.messages import AIMessage, HumanMessage
 
-from mordomo.agents.supervisor import Decisao
+from mordomo.agents.supervisor import PROMPT_SUPERVISOR, Decisao
 from mordomo.core.graph import build_graph
 
 
@@ -79,6 +79,17 @@ def _roteador(texto: str) -> Decisao | None:
 
 def test_supervisor_aceita_destino_tarefas():
     assert _roteador("cria uma tarefa").destino == "tarefas"
+
+
+def test_capacidades_atuais_vencem_afirmacoes_antigas_do_historico():
+    """Regressão real: após o deploy, recusas antigas fizeram o supervisor
+    negar a capacidade de tarefas que já estava descrita no próprio prompt."""
+    prompt = PROMPT_SUPERVISOR.lower()
+    assert "fonte de verdade" in prompt
+    assert "afirmações antigas" in prompt
+    assert "tarefas é uma capacidade oficial e já está em produção" in prompt
+    assert "texto pronto para copiar" in prompt
+    assert "novidade no mordomo: agora você pode criar" in prompt
 
 
 async def test_caminho_responder_termina_no_supervisor(monkeypatch):
