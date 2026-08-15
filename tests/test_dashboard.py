@@ -255,6 +255,19 @@ async def test_orfaos_por_tipo_diagnostica_o_kpi():
     assert ultimo == queries._dia(datetime.now(UTC))
 
 
+async def test_saude_mostra_timeouts_llm_como_subconjunto_dos_erros():
+    desde = datetime.now(UTC) - timedelta(hours=1)
+    antes = await queries.saude(desde)
+
+    await emitir("error", 1, "1:t", "t-timeout", onde="grafo",
+                 tentativa=1, efeito=False, motivo="timeout_llm")
+
+    depois = await queries.saude(desde)
+    assert depois["timeouts_llm"] == antes.get("timeouts_llm", 0) + 1
+    assert depois["erros_grafo"] == antes["erros_grafo"] + 1
+    assert "timeouts de LLM (incluídos nos erros acima)" in (await gerar_html(dias=1))
+
+
 async def test_migracao_e_sinais_de_canal_aparecem_no_placar():
     desde = datetime.now(UTC) - timedelta(hours=1)
     orfaos_antes = await queries.orfaos(desde)

@@ -407,8 +407,12 @@ async def resumo(desde: datetime, ate: datetime | None = None) -> dict:
 
 async def saude(desde: datetime, contagens: dict[str, int] | None = None) -> dict:
     contagens = contagens if contagens is not None else await contagem_por_tipo(desde)
+    erros = await _eventos(desde, ("error",))
     return {
         "erros_grafo": contagens.get("error", 0),
+        "timeouts_llm": sum(
+            1 for e in erros if (e.payload or {}).get("motivo") == "timeout_llm"
+        ),
         "falhas_de_parse": contagens.get("orchestrator_parse_error", 0),
         "desconhecidos": contagens.get("unknown_user", 0),
         # Reentrega da Meta barrada pelo dedupe: normal em rajada curta; se

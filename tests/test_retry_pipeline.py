@@ -14,8 +14,10 @@ from langchain_core.messages import AIMessage
 
 from mordomo.analytics import emitir
 from mordomo.channels.contract import InboundMessage
+from mordomo.core.llm import LLMDeadlineExceeded
 from mordomo.core.pipeline import _turno_teve_efeito, processar_entrada
 from mordomo.db.models import Member
+from mordomo.reporting.queries import _eventos
 
 
 class _GrafoFalhaUmaVez:
@@ -53,6 +55,24 @@ async def test_crash_sem_efeito_repete_em_silencio_e_responde():
     _, respostas = await processar_entrada(_membro(), _inbound(), grafo)
     assert grafo.chamadas == 2
     assert respostas[0].texto == "Às ordens!"  # o usuário nem percebe
+
+
+async def test_timeout_interno_imediato_ainda_usa_retry_seguro():
+    class _GrafoTimeoutUmaVez:
+        def __init__(self):
+            self.chamadas = 0
+
+        async def ainvoke(self, entrada, cfg):
+            self.chamadas += 1
+            if self.chamadas == 1:
+                raise TimeoutError("timeout interno de uma dependência")
+            return {"messages": [AIMessage("recuperou")]}
+
+    grafo = _GrafoTimeoutUmaVez()
+    _, respostas = await processar_entrada(_membro(999), _inbound(), grafo)
+
+    assert grafo.chamadas == 2
+    assert respostas[0].texto == "recuperou"
 
 
 async def test_crash_com_efeito_nao_repete_e_avisa_honestamente():
@@ -169,3 +189,85 @@ async def test_membros_diferentes_seguem_em_paralelo():
         processar_entrada(_membro(993), _inbound(), grafo),
     )
     assert grafo.pico == 2
+
+
+async def test_timeout_llm_usa_retry_seguro_sem_cancelar_tool():
+    class _GrafoTimeoutDepoisTool:
+        def __init__(self):
+            self.chamadas = 0
+            self.tool_concluiu = False
+
+        async def ainvoke(self, entrada, cfg):
+            self.chamadas += 1
+            if self.chamadas == 1:
+                raise LLMDeadlineExceeded(0.05)
+            # Mais longa que o prazo da chamada que falhou: seria cancelada pelo
+            # desenho antigo, que punha o grafo inteiro sob asyncio.timeout.
+            await asyncio.sleep(0.08)
+            self.tool_concluiu = True
+            return {"messages": [AIMessage("tool terminou")]}
+
+    grafo = _GrafoTimeoutDepoisTool()
+    desde = datetime.now(UTC)
+    turn_id, respostas = await processar_entrada(_membro(998), _inbound(), grafo)
+
+    eventos = [e for e in await _eventos(desde, ("error",)) if e.turn_id == turn_id]
+    assert grafo.chamadas == 2
+    assert grafo.tool_concluiu is True
+    assert respostas[0].texto == "tool terminou"
+    assert len(eventos) == 1
+    assert eventos[0].payload["motivo"] == "timeout_llm"
+
+
+async def test_timeout_llm_depois_de_tool_mutante_nao_repete():
+    class _GrafoToolDepoisTimeout:
+        def __init__(self):
+            self.chamadas = 0
+
+        async def ainvoke(self, entrada, cfg):
+            self.chamadas += 1
+            await emitir(
+                "tool_result", 1, "1:t", cfg["configurable"]["turn_id"],
+                tool="criar_lembrete", ok=True,
+            )
+            raise LLMDeadlineExceeded(0.02)  # segunda chamada LLM, após a tool
+
+    grafo = _GrafoToolDepoisTimeout()
+    desde = datetime.now(UTC)
+    turn_id, respostas = await processar_entrada(_membro(1001), _inbound(), grafo)
+
+    eventos = [e for e in await _eventos(desde, ("error",)) if e.turn_id == turn_id]
+    assert grafo.chamadas == 1
+    assert "Fiz o que você pediu" in respostas[0].texto
+    assert len(eventos) == 1
+    assert eventos[0].payload["motivo"] == "timeout_llm"
+    assert eventos[0].payload["efeito"] is True
+
+
+async def test_dois_timeouts_llm_liberam_fila_para_o_proximo_turno():
+    class _GrafoDoisTimeouts:
+        def __init__(self):
+            self.chamadas = 0
+            self.primeira_entrou = asyncio.Event()
+
+        async def ainvoke(self, entrada, cfg):
+            self.chamadas += 1
+            if self.chamadas <= 2:
+                self.primeira_entrou.set()
+                await asyncio.sleep(0.02)
+                raise LLMDeadlineExceeded(0.02)
+            return {"messages": [AIMessage("fila liberada")]}
+
+    grafo = _GrafoDoisTimeouts()
+    membro = _membro(1000)
+    primeiro = asyncio.create_task(processar_entrada(membro, _inbound(), grafo))
+    await grafo.primeira_entrou.wait()
+    segundo = asyncio.create_task(processar_entrada(membro, _inbound(), grafo))
+
+    (_, respostas_1), (_, respostas_2) = await asyncio.wait_for(
+        asyncio.gather(primeiro, segundo), timeout=0.20
+    )
+
+    assert grafo.chamadas == 3
+    assert "tropecei" in respostas_1[0].texto
+    assert respostas_2[0].texto == "fila liberada"

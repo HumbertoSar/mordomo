@@ -550,6 +550,7 @@ def montar_html(d: dict) -> str:
   <div class="card">
     {_barras_horizontais([
         ("erros no grafo", s["erros_grafo"]),
+        ("timeouts de LLM (incluídos nos erros acima)", s["timeouts_llm"]),
         ("falhas de parse do roteador", s["falhas_de_parse"]),
         ("mensagens de desconhecidos", s["desconhecidos"]),
         ("proativos sem canal que aceitasse", s["proativos_falhos"]),

@@ -70,12 +70,38 @@ Nota de método: a primeira rodada do juiz reprovou o sonnet INJUSTAMENTE
 ("inventou" a data que o resolvedor de datas tinha resolvido de 'sexta') —
 calibrar o juiz contra falsos positivos vem ANTES de confiar no veredito.
 
+### Atualização 15/08/2026 — keep-alive furou o timeout HTTP
+
+Incidente real no WhatsApp: uma chamada do supervisor ficou **300,9s** no
+`ChatOpenAI`, voltou com HTTP 200 e `choices=null`; o retry do pipeline repetiu
+o mesmo padrão por mais **300,8s**. Três mensagens seguintes esperaram o lock
+da thread, chegando a 542,6s de fila.
+
+O `timeout=8s` estava corretamente configurado no `AsyncOpenAI`. O erro da
+premissa era tratá-lo como prazo de parede: o timeout de leitura do HTTPX mede
+inatividade entre operações de rede. Uma reprodução local enviando um byte de
+keep-alive a cada 100ms manteve a chamada viva por 1s mesmo com timeout de
+200ms, até devolver `choices=null`.
+
+Decisão adicional:
+
+- `LLM_PRAZO_TOTAL_SEGUNDOS=15` limita o tempo de parede de **cada chamada
+  assíncrona ao modelo**, no `ChatOpenAI`, independentemente dos keep-alives;
+  com o retry seguro do pipeline, duas chamadas completamente travadas consomem
+  cerca de 30s no caso comum, em vez dos 601,7s observados no incidente;
+- o grafo e as tools ficam fora desse escopo de cancelamento: uma tool mutante
+  nunca é interrompida durante seu commit por este prazo;
+- `LLMDeadlineExceeded` passa pelo retry seguro já existente no pipeline, que só
+  repete quando nenhuma tool mutante produziu efeito;
+- o evento `error` distingue `motivo=timeout_llm` de `excecao_grafo`; no
+  dashboard, timeouts de LLM aparecem explicitamente como subconjunto dos erros.
+
 ## Consequências
 
-+ Pior caso percebido limitado, sem tocar em arquitetura.
++ Cada chamada ao modelo tem pior caso de parede limitado sem expor tools a cancelamento.
 + A tabela acima é o "antes"; o dashboard da fase 1 dá o p50/p95 contínuo em uso
   real, que é o número que decide se ainda há problema.
 − Um timeout agressivo pode abortar uma resposta legítima e lenta e gastar duas
   chamadas onde uma bastaria. Aceitável: o turno de conversa é curto.
-− A decisão é **defensiva, não comprovada** — a cauda não foi reproduzida em
-  laboratório. Se o p95 em produção continuar alto, reabrir com dado real.
++ A causa dos keep-alives e o corte pelo prazo externo foram reproduzidos com
+  servidor HTTP local; o p95 de produção continua sendo acompanhado.
