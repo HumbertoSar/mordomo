@@ -13,6 +13,8 @@ doc `gestao-a-vista-agente-whatsapp.md`):
 
   ciclo de vida de uma necessidade (mesmo journey_id, possivelmente vários turnos):
     journey_started · journey_resolved · journey_abandoned · journey_reopened
+  fatos do domínio de tarefas (também correlacionados por journey_id):
+    task_created · task_completed · task_cancelled · task_reopened
 
 Tipo novo emitido FORA de um turno tem que entrar em
 `reporting.queries.SEM_TURNO_POR_DESENHO`, senão infla o KPI de eventos
@@ -24,7 +26,9 @@ entra em nenhum funil — vira linha órfã que ninguém consegue cruzar depois.
 (Foi exatamente o que aconteceu no primeiro dia de uso: tool_called,
 reminder_created e message_sent nasceram sem sessão.)
 
-Falha de analytics NUNCA derruba a conversa (try/except deliberado)."""
+Eventos operacionais comuns nunca derrubam a conversa (try/except deliberado).
+Fatos que são invariantes do domínio, como tarefa + ciclo de vida da jornada,
+usam ``evento_de`` na mesma transação: ou ambos persistem, ou ambos voltam."""
 
 import logging
 
@@ -77,9 +81,33 @@ def contexto_de(config) -> dict:
     }
 
 
-async def emitir_de(config, tipo: str, **payload) -> None:
-    """`emitir` já com member/session/turn preenchidos a partir do config."""
-    await emitir(tipo, **contexto_de(config), **payload)
+def evento_de(
+    config, tipo: str, *, journey_id: str | None = None, **payload
+) -> ProductEvent:
+    """Constrói um evento para persistência na transação do domínio.
+
+    Use somente quando o fato analítico é parte da mesma invariável do estado
+    alterado (por exemplo, estado da tarefa + ciclo de vida da jornada).
+    Eventos operacionais comuns continuam por :func:`emitir_de`, tolerante a falhas.
+    """
+    contexto = contexto_de(config)
+    if journey_id is not None:
+        contexto["journey_id"] = journey_id
+    return ProductEvent(tipo=tipo, payload=payload, **contexto)
+
+
+async def emitir_de(
+    config, tipo: str, *, journey_id: str | None = None, **payload
+) -> None:
+    """`emitir` com contexto seguro e jornada opcionalmente explícita.
+
+    Uma tool que CRIA a jornada ainda não a recebeu no ``configurable``; ela
+    pode informar somente ``journey_id`` sem poder sobrescrever member/session/turn.
+    """
+    contexto = contexto_de(config)
+    if journey_id is not None:
+        contexto["journey_id"] = journey_id
+    await emitir(tipo, **contexto, **payload)
 
 
 def uso_de(mensagens) -> dict | None:

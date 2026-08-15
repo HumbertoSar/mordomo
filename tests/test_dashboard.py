@@ -80,7 +80,7 @@ def test_estatisticas_do_codigo_conta_a_arvore_real():
     s = estatisticas_do_codigo()
     assert s["linhas_src"] > 3000
     assert s["testes"] >= 170
-    assert s["nos_grafo"] == 5  # supervisor + 4 especialistas — muda só com novo agente
+    assert s["nos_grafo"] == 6  # supervisor + 5 especialistas — muda só com novo agente
     assert s["ferramentas"] >= 11
     assert s["canais"] == 2  # TelegramAdapter + WhatsAppAdapter
     assert s["adrs"] >= 9
@@ -129,6 +129,31 @@ def test_injetar_estatisticas_sem_turno_no_periodo_nao_inventa_custo():
         _pagina_ledger_falsa(), stats, custo_por_turno=None, data="15/08/2026"
     )
     assert '<dd id="lg-custo">—</dd>' in saida
+
+
+async def test_dashboard_mostra_resolucao_quando_ha_jornadas():
+    await emitir(
+        "journey_started",
+        1,
+        "1:hoje",
+        "turn-dashboard-journey-1",
+        journey_id="dashboard-journey-1",
+        journey_type="task",
+        loads=["mental"],
+    )
+    await emitir(
+        "journey_resolved",
+        1,
+        "1:hoje",
+        "turn-dashboard-journey-2",
+        journey_id="dashboard-journey-1",
+    )
+
+    html = await gerar_html(dias=1)
+
+    assert "Jornadas familiares" in html
+    assert "taxa de resolução" in html
+    assert "100%" in html
 
 
 async def test_publicar_monta_a_pasta_sem_sujar_o_working_tree(tmp_path):

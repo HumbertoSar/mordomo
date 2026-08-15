@@ -1,7 +1,7 @@
 # 🤵 Mordomo da Família
 
 Agente conversacional multi-agente (supervisor + subagentes) para uma família
-brasileira — lembretes, agenda e, em breve, tarefas, e-mail e indicações de
+brasileira — lembretes, agenda, tarefas acompanháveis e, em breve, e-mail e indicações de
 filmes. Construído com **LangGraph** para aprender e demonstrar **analytics,
 observabilidade (Langfuse) e evals** em um agente com usuários reais.
 
@@ -51,8 +51,9 @@ Seu telegram-id: mande /start ao bot e veja o log de `unknown_user`, ou use o
 cloud.langfuse.com e preencha as chaves no `.env` — cada conversa vira um
 trace navegável (user = membro, session = conversa do dia).
 
-Teste no chat: `me lembra amanhã às 8h de pagar o boleto` · `que lembretes eu
-tenho?` · `marca dentista sexta às 10h` · `o que temos essa semana?`
+Teste no chat: `me lembra amanhã às 8h de pagar o boleto` · `marca dentista
+sexta às 10h` · `cria uma tarefa para o Davi buscar os coletores` · `quais
+tarefas estão abertas?` · `conclui a tarefa 3`.
 
 ## Desenvolvimento
 
@@ -79,7 +80,7 @@ vários turnos — não confundir uma resposta enviada com um problema resolvido
 src/mordomo/
   channels/   contrato semântico + adapters (telegram, whatsapp) + webhook
   core/       grafo, estado, pipeline (nasce o trace), fábrica de LLM/agentes
-  agents/     supervisor (roteador) + subagentes lembretes e agenda
+  agents/     supervisor + subagentes lembretes, agenda, tarefas e cofre
   tools/      tools com analytics embutido + datas pt-BR (dateparser)
   db/         SQLAlchemy: domínio + eventos de produto
   scheduler.py / notify.py / identity.py / observability.py / analytics.py

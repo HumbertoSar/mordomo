@@ -55,6 +55,34 @@ async def test_emissor_de_propaga_journey_id_do_contexto():
     assert evento.journey_id == "journey-config"
 
 
+async def test_emissor_de_aceita_jornada_explicita_para_tool_que_a_criou():
+    config = {
+        "configurable": {
+            "member_id": 1,
+            "session_id": "1:hoje",
+            "turn_id": "turn-jornada-explicita",
+        }
+    }
+
+    await emitir_de(
+        config,
+        "tool_result",
+        journey_id="journey-explicita",
+        tool="criar_tarefa",
+        ok=True,
+    )
+
+    async with Sessao() as s:
+        evento = (
+            await s.execute(
+                select(ProductEvent)
+                .where(ProductEvent.turn_id == "turn-jornada-explicita")
+            )
+        ).scalar_one()
+    assert evento.journey_id == "journey-explicita"
+    assert "journey_id" not in evento.payload
+
+
 async def test_jornadas_agregam_desfecho_final_sem_confundir_reabertura():
     from mordomo.reporting.queries import jornadas
 

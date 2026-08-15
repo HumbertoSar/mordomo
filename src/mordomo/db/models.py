@@ -125,6 +125,27 @@ class FamilyEvent(Base):
     criado_em: Mapped[datetime] = mapped_column(TZDateTime, default=agora_utc)
 
 
+class Task(Base):
+    """Pendência acompanhável: o primeiro domínio que fecha uma jornada real."""
+
+    __tablename__ = "tasks"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    titulo: Mapped[str] = mapped_column(String(300))
+    criado_por: Mapped[int] = mapped_column(ForeignKey("members.id"), index=True)
+    responsavel_id: Mapped[int | None] = mapped_column(
+        ForeignKey("members.id"), nullable=True, index=True
+    )
+    compartilhada: Mapped[bool] = mapped_column(default=False)
+    prazo_utc: Mapped[datetime | None] = mapped_column(TZDateTime, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="aberta", index=True)
+    journey_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    criado_em: Mapped[datetime] = mapped_column(TZDateTime, default=agora_utc)
+    atualizado_em: Mapped[datetime] = mapped_column(
+        TZDateTime, default=agora_utc, onupdate=agora_utc
+    )
+
+
 class VaultItem(Base):
     """Cofre da família: dado estruturado que se consulta sempre (CEP, número
     de documento, carteirinha do plano…).

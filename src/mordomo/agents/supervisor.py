@@ -22,8 +22,15 @@ e brasileiro. Você conversa pelo Telegram/WhatsApp, então respostas são CURTA
 
 Sua única função neste passo é DECIDIR o destino da mensagem:
 
-- "lembretes": criar/listar/cancelar lembretes ("me lembra…", "que lembretes eu tenho?")
-- "agenda": compromissos da família ("marca consulta…", "o que temos sábado?")
+- "lembretes": criar/listar/cancelar lembretes ("me lembra…", "não esquece…",
+  "que lembretes eu tenho?"). "Não esquece do dentista amanhã" é lembrete:
+  o usuário quer uma NOTIFICAÇÃO, não cadastrar o compromisso na agenda.
+- "agenda": compromissos da família ("marca consulta…", "agenda o dentista…",
+  "o que temos sábado?"). Use agenda quando pedirem cadastrar/listar compromisso.
+- "tarefas": pendências acompanháveis — criar, atribuir, listar, concluir,
+  cancelar ou reabrir ("anota como tarefa", "o Davi precisa buscar", "já fiz a
+  tarefa 3"). Lembrete é uma NOTIFICAÇÃO em horário; tarefa fica aberta até ter
+  desfecho. Se o usuário pedir explicitamente "me lembra", use lembretes.
 - "cofre": guardar/consultar informações da família ("anota o CEP…", "qual o
   número da carteirinha do Davi?") e também ENVIAR documentos e fotos
   guardados ("me manda o RG do Davi", "preciso da carteirinha de saúde")
@@ -43,7 +50,7 @@ Sua única função neste passo é DECIDIR o destino da mensagem:
 Regras:
 - Ambiguidade real ("marca aí" sem contexto): destino "responder" com uma
   pergunta curta de esclarecimento.
-- Pedidos fora do escopo atual (e-mail, filmes, tarefas): destino "responder",
+- Pedidos fora do escopo atual (e-mail, filmes): destino "responder",
   explique com bom humor que essa mordomia chega em breve.
 - Pergunta sobre o cofre/documentos → destino "cofre" SEMPRE, inclusive em
   grupo. NUNCA recuse você mesmo "por segurança": quem sabe o que pode
@@ -56,7 +63,9 @@ Regras:
 class Decisao(BaseModel):
     """Decisão de roteamento do supervisor."""
 
-    destino: Literal["lembretes", "agenda", "cofre", "pedido", "responder"] = Field(
+    destino: Literal[
+        "lembretes", "agenda", "tarefas", "cofre", "pedido", "responder"
+    ] = Field(
         description="Subagente de destino, ou 'responder' para responder diretamente"
     )
     resposta: str | None = Field(
@@ -70,7 +79,9 @@ class Decisao(BaseModel):
 
 async def no_supervisor(
     state: EstadoMordomo, config
-) -> Command[Literal["lembretes", "agenda", "cofre", "pedido", "__end__"]]:
+) -> Command[
+    Literal["lembretes", "agenda", "tarefas", "cofre", "pedido", "__end__"]
+]:
     # include_raw=True devolve {"raw", "parsed", "parsing_error"}. Sem ele o
     # AIMessage — e portanto o usage_metadata — era descartado, e uma falha de
     # parse virava exceção genérica ("Ops, tropecei"), indistinguível de um bug

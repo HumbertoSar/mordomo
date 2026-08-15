@@ -205,6 +205,41 @@ def montar_html(d: dict) -> str:
     def _seg(v):
         return f"{v:.0f}s" if v is not None and v < 90 else (f"{v / 60:.0f}min" if v else "—")
 
+    jornadas = d.get("jornadas") or {}
+    bloco_jornadas = ""
+    if jornadas.get("iniciadas"):
+        taxa = jornadas.get("taxa_resolucao")
+        kpis_jornadas = "".join(
+            [
+                _kpi("iniciadas", str(jornadas["iniciadas"])),
+                _kpi("abertas", str(jornadas["abertas"])),
+                _kpi("resolvidas", str(jornadas["resolvidas"])),
+                _kpi("abandonadas", str(jornadas["abandonadas"])),
+                _kpi("reaberturas", str(jornadas["reaberturas"]), "retrabalho"),
+                _kpi(
+                    "taxa de resolução",
+                    f"{taxa:.0%}" if taxa is not None else "—",
+                    "entre jornadas com desfecho",
+                ),
+                _kpi(
+                    "tempo até resolução",
+                    _seg(jornadas.get("tempo_resolucao_p50_s")),
+                    "mediana",
+                ),
+            ]
+        )
+        bloco_jornadas = f"""
+  <h2>Jornadas familiares</h2>
+  <div class="kpis">{kpis_jornadas}</div>
+  <div class="card" style="margin-top:.75rem">
+    <h2 style="margin-top:0">Por tipo</h2>
+    {_barras_horizontais(list(jornadas.get("por_tipo", {}).items()))}
+    <h2 style="margin-top:1.5rem">Cargas reduzidas</h2>
+    {_barras_horizontais(list(jornadas.get("por_carga", {}).items()))}
+    <p class="vazio">Resolução exige evento de desfecho; resposta enviada e tool
+       bem-sucedida não contam sozinhas.</p>
+  </div>"""
+
     tabela_canais = "".join(
         f"<tr><td>{html.escape(canal)}</td><td class='num'>{v['membros']}</td>"
         f"<td class='num'>{v['recebidas']}</td><td class='num'>{v['enviadas']}</td></tr>"
@@ -439,6 +474,8 @@ def montar_html(d: dict) -> str:
   <h2>Funil do turno</h2>
   <div class="card">{_barras_horizontais([(r, n) for r, n in d["funil"]], " turnos")}</div>
 
+  {bloco_jornadas}
+
   <h2>Para onde o supervisor roteou</h2>
   <div class="card">{_barras_horizontais(sorted(d["roteamento"].items(), key=lambda x: -x[1]))}</div>
 
@@ -609,6 +646,14 @@ def montar_texto(d: dict) -> str:
         + (f" (US$ {c['total_usd'] / t['total']:.4f} por turno)" if t["total"] else ""),
         f"• lembretes criados: {d['lembretes']['criados']}",
     ]
+    jornadas = d.get("jornadas") or {}
+    if jornadas.get("iniciadas"):
+        taxa = jornadas.get("taxa_resolucao")
+        taxa_txt = f"{taxa:.0%}" if taxa is not None else "sem desfechos ainda"
+        linhas.append(
+            f"• jornadas: {jornadas['iniciadas']} iniciadas · "
+            f"{jornadas['abertas']} abertas · resolução {taxa_txt}"
+        )
     if wa.get("com_status"):
         entrega, leitura = wa.get("taxa_entrega"), wa.get("taxa_leitura")
         entregue = f"{entrega:.0%} entregues" if entrega is not None else "entrega sem medida"
