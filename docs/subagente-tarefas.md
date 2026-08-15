@@ -16,7 +16,7 @@ O subagente permite:
 2. atribuir a um membro da família ou deixar sem responsável;
 3. escolher escopo privado ou compartilhado;
 4. informar prazo opcional;
-5. listar abertas e, sob pedido, encerradas;
+5. listar abertas e, sob pedido, encerradas, com filtro por responsável;
 6. concluir;
 7. cancelar;
 8. reabrir.
@@ -48,6 +48,7 @@ como substituto dos fatos históricos.
 - atribuir a outra pessoa torna a tarefa compartilhada;
 - responsável é resolvido deterministicamente pelo cadastro, nunca inventado
   pelo LLM;
+- nomes repetidos exigem esclarecimento; o sistema nunca escolhe uma pessoa ao acaso;
 - título e nomes não entram no payload de Analytics;
 - qualquer membro que enxergue uma tarefa compartilhada pode atualizá-la nesta
   primeira versão; permissões mais finas só serão adicionadas se o uso real

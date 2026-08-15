@@ -26,6 +26,12 @@ def test_modelo_tarefa_faz_parte_do_schema():
     assert "tasks" in Base.metadata.tables
 
 
+def test_listar_tarefas_declara_filtro_opcional_de_responsavel():
+    from mordomo.tools.tarefas import listar_tarefas
+
+    assert "responsavel" in listar_tarefas.args
+
+
 async def test_criar_tarefa_rejeita_titulo_vazio():
     from mordomo.tools.tarefas import criar_tarefa
 
@@ -186,6 +192,34 @@ async def test_atribuir_a_outro_membro_forca_compartilhamento_e_carga_logistica(
     assert inicio.payload["loads"] == ["mental", "logistics"]
 
 
+async def test_criar_tarefa_pede_esclarecimento_para_nomes_duplicados():
+    from mordomo.tools.tarefas import criar_tarefa
+
+    autor = await criar_membro("AutorResponsavelDuplicado")
+    await criar_membro("NomeDuplicadoTarefa")
+    await criar_membro("NomeDuplicadoTarefa")
+
+    resposta = await criar_tarefa.ainvoke(
+        {
+            "titulo": "não atribuir ao acaso",
+            "responsavel": "NomeDuplicadoTarefa",
+            "prazo": None,
+            "compartilhada": True,
+        },
+        cfg_de(autor, "task-duplicate-owner"),
+    )
+
+    async with Sessao() as s:
+        tarefas = list(
+            (
+                await s.execute(select(Task).where(Task.criado_por == autor.id))
+            ).scalars()
+        )
+
+    assert "mais de uma" in resposta.lower()
+    assert tarefas == []
+
+
 async def test_criar_tarefa_com_prazo_resolve_data_deterministicamente():
     from mordomo.tools.tarefas import criar_tarefa
 
@@ -282,6 +316,45 @@ async def test_listar_mostra_responsavel_deterministico():
     )
 
     assert "ResponsavelListaTarefa" in resposta
+
+
+async def test_listar_filtra_tarefas_pelo_responsavel():
+    from mordomo.tools.tarefas import listar_tarefas
+
+    autor = await criar_membro("AutorFiltroResponsavel")
+    pessoa_a = await criar_membro("PessoaAFiltroTarefa")
+    pessoa_b = await criar_membro("PessoaBFiltroTarefa")
+    async with Sessao() as s:
+        s.add_all(
+            [
+                Task(
+                    titulo="somente da pessoa A",
+                    criado_por=autor.id,
+                    responsavel_id=pessoa_a.id,
+                    compartilhada=True,
+                    journey_id="journey-filter-owner-a",
+                ),
+                Task(
+                    titulo="somente da pessoa B",
+                    criado_por=autor.id,
+                    responsavel_id=pessoa_b.id,
+                    compartilhada=True,
+                    journey_id="journey-filter-owner-b",
+                ),
+            ]
+        )
+        await s.commit()
+
+    resposta = await listar_tarefas.ainvoke(
+        {
+            "incluir_encerradas": False,
+            "responsavel": "PessoaAFiltroTarefa",
+        },
+        cfg_de(autor, "task-list-filter-owner"),
+    )
+
+    assert "somente da pessoa A" in resposta
+    assert "somente da pessoa B" not in resposta
 
 
 async def test_concluir_tarefa_resolve_a_mesma_jornada():

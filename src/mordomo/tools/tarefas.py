@@ -13,6 +13,20 @@ from ..db.session import Sessao
 from ._comum import fmt_data, resolver_ou_instruir
 
 
+async def _membros_por_nome(nome: str) -> list[Member]:
+    """No máximo dois candidatos bastam para distinguir único de ambíguo."""
+    async with Sessao() as s:
+        return list(
+            (
+                await s.execute(
+                    select(Member)
+                    .where(func.lower(Member.nome) == nome.strip().lower())
+                    .limit(2)
+                )
+            ).scalars()
+        )
+
+
 @tool
 async def criar_tarefa(
     titulo: str,
@@ -58,11 +72,8 @@ async def criar_tarefa(
 
     responsavel_id: int | None
     if responsavel:
-        async with Sessao() as s:
-            encontrado = await s.scalar(
-                select(Member).where(func.lower(Member.nome) == responsavel.strip().lower())
-            )
-        if encontrado is None:
+        candidatos = await _membros_por_nome(responsavel)
+        if not candidatos:
             await emitir_de(
                 config,
                 "tool_result",
@@ -72,7 +83,20 @@ async def criar_tarefa(
                 motivo="responsavel_nao_encontrado",
             )
             return f'Não encontrei "{responsavel}" entre os membros da família.'
-        responsavel_id = encontrado.id
+        if len(candidatos) > 1:
+            await emitir_de(
+                config,
+                "tool_result",
+                journey_id=journey_id,
+                tool="criar_tarefa",
+                ok=False,
+                motivo="responsavel_ambiguo",
+            )
+            return (
+                f'Encontrei mais de uma pessoa chamada "{responsavel}". '
+                "Quem exatamente deve ser responsável?"
+            )
+        responsavel_id = candidatos[0].id
     else:
         # Privada sem nome = tarefa do próprio autor; compartilhada sem nome =
         # qualquer pessoa da família pode assumir.
@@ -145,18 +169,47 @@ async def criar_tarefa(
 
 @tool
 async def listar_tarefas(
-    incluir_encerradas: bool, config: RunnableConfig
+    incluir_encerradas: bool,
+    config: RunnableConfig,
+    responsavel: str | None = None,
 ) -> str:
     """Lista tarefas visíveis; por padrão somente as abertas.
 
     Args:
         incluir_encerradas: true quando o usuário pedir concluídas/canceladas.
+        responsavel: nome exato para filtrar as tarefas, ou null para listar todas.
     """
     member_id = config["configurable"]["member_id"]
     await emitir_de(config, "tool_called", tool="listar_tarefas")
     filtros = [
         or_(Task.compartilhada.is_(True), Task.criado_por == member_id),
     ]
+    responsavel_id = None
+    if responsavel:
+        candidatos = await _membros_por_nome(responsavel)
+        if not candidatos:
+            await emitir_de(
+                config,
+                "tool_result",
+                tool="listar_tarefas",
+                ok=False,
+                motivo="responsavel_nao_encontrado",
+            )
+            return f'Não encontrei "{responsavel}" entre os membros da família.'
+        if len(candidatos) > 1:
+            await emitir_de(
+                config,
+                "tool_result",
+                tool="listar_tarefas",
+                ok=False,
+                motivo="responsavel_ambiguo",
+            )
+            return (
+                f'Encontrei mais de uma pessoa chamada "{responsavel}". '
+                "Qual delas devo usar no filtro?"
+            )
+        responsavel_id = candidatos[0].id
+        filtros.append(Task.responsavel_id == responsavel_id)
     if not incluir_encerradas:
         filtros.append(Task.status == "aberta")
     async with Sessao() as s:
@@ -188,6 +241,7 @@ async def listar_tarefas(
         ok=True,
         n=len(tarefas),
         incluir_encerradas=incluir_encerradas,
+        responsavel_id=responsavel_id,
     )
     if not tarefas:
         return "Nenhuma tarefa encontrada."

@@ -26,3 +26,5 @@ ts,commit,eval,acertos,total,acuracia,detalhe
 2026-08-11T20:25:25-03:00,e6e0519,datas_ptbr,26,26,1.0000,resolver_data determinístico
 2026-08-11T20:26:07-03:00,e6e0519,roteamento,28,29,0.9655,anthropic/claude-haiku-4.5
 2026-08-11T21:21:04-03:00,0bb1c60,datas_ptbr,30,30,1.0000,resolver_data determinístico
+2026-08-15T17:19:55-03:00,b60a859,datas_ptbr,30,30,1.0000,resolver_data determinístico
+2026-08-15T17:20:33-03:00,b60a859,roteamento,33,33,1.0000,anthropic/claude-haiku-4.5

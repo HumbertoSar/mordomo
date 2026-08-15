@@ -65,7 +65,7 @@ def _salvar_run(nome: str, acertos: int, total: int, detalhe: str) -> None:
     HISTORICO.parent.mkdir(exist_ok=True)
     novo = not HISTORICO.exists()
     with HISTORICO.open("a", encoding="utf-8", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=_CAMPOS)
+        w = csv.DictWriter(f, fieldnames=_CAMPOS, lineterminator="\n")
         if novo:
             w.writeheader()
         w.writerow(
