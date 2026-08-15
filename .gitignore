@@ -1,4 +1,7 @@
+# Segredos locais e qualquer backup/variante de .env
 .env
+.env.*
+!.env.example
 __pycache__/
 *.py[cod]
 .venv/
