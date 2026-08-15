@@ -203,9 +203,10 @@ class ProductEvent(Base):
     dashboard de gestão à vista lê de agregações sobre esta tabela (nunca do
     dado bruto direto).
 
-    Três chaves de análise, do mais largo ao mais fino:
+    Quatro chaves de análise, do mais largo ao mais fino:
       member_id  — quem
       session_id — a conversa do dia ("<member_id>:<data>")
+      journey_id — uma necessidade que pode atravessar turnos e dias
       turn_id    — UMA pergunta e sua resposta; é o que permite reconstruir o
                    funil (recebi → roteei → chamei tool → respondi) e atribuir
                    latência e custo a um turno específico.
@@ -221,5 +222,6 @@ class ProductEvent(Base):
     tipo: Mapped[str] = mapped_column(String(50), index=True)
     member_id: Mapped[int | None] = mapped_column(nullable=True, index=True)
     session_id: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    journey_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     turn_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
     payload: Mapped[dict] = mapped_column(JSON, default=dict)

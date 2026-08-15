@@ -68,6 +68,11 @@ O fluxo de aprendizado do projeto: operar com a família → ler traces no
 Langfuse → medir (evals + eventos em `product_events`) → corrigir → re-medir.
 Casos reais ruins viram linhas nos datasets de `evals/datasets/`.
 
+A evolução coordenada de produto, Analytics, Observabilidade e Evaluation está
+documentada em [docs/trilha-produto-aprendizado.md](docs/trilha-produto-aprendizado.md).
+O próximo salto é medir a resolução de uma necessidade familiar ao longo de
+vários turnos — não confundir uma resposta enviada com um problema resolvido.
+
 ## Estrutura
 
 ```

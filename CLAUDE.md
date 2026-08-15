@@ -185,6 +185,11 @@ tools/lembretes testada (`tests/test_lembretes_tools.py`).
 
 ## Roadmap (fase 2+)
 
+A trilha que mantém produto e aprendizado evoluindo juntos está em
+[`docs/trilha-produto-aprendizado.md`](docs/trilha-produto-aprendizado.md): cada
+incremento de produto deve gerar evidência para Analytics, Observabilidade e
+Evaluation. A Etapa 1 introduz jornada e resolução como unidade acima do turno.
+
 ### Próximos
 
 - [ ] Memória de longo prazo (LangGraph Store + extração em background / LangMem)
