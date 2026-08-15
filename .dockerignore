@@ -1,6 +1,9 @@
 .venv/
 .git/
+# Segredos locais e qualquer backup/variante de .env nunca entram na imagem
 .env
+.env.*
+!.env.example
 backups/
 docs/dashboard.html
 __pycache__/
