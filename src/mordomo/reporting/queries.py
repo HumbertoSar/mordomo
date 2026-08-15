@@ -217,6 +217,73 @@ async def lembretes(desde: datetime, contagens: dict[str, int] | None = None) ->
     }
 
 
+async def jornadas(desde: datetime) -> dict:
+    """Desfecho das jornadas iniciadas na janela (análise por coorte).
+
+    O estado é o último fato de ciclo de vida de cada ``journey_id``. Assim uma
+    resolução seguida de reabertura volta a contar como aberta. Turno concluído,
+    mensagem enviada e tool bem-sucedida não entram: nenhum deles prova que a
+    necessidade familiar terminou.
+    """
+    tipos = (
+        "journey_started",
+        "journey_resolved",
+        "journey_abandoned",
+        "journey_reopened",
+    )
+    eventos = await _eventos(desde, tipos)
+    por_id: dict[str, list[ProductEvent]] = defaultdict(list)
+    for evento in eventos:
+        if evento.journey_id:
+            por_id[evento.journey_id].append(evento)
+
+    iniciadas: dict[str, ProductEvent] = {}
+    for journey_id, fatos in por_id.items():
+        inicio = next((e for e in fatos if e.tipo == "journey_started"), None)
+        if inicio is not None:
+            iniciadas[journey_id] = inicio
+
+    estados: Counter = Counter()
+    reaberturas = 0
+    por_tipo: Counter = Counter()
+    por_carga: Counter = Counter()
+    tempos_resolucao: list[float] = []
+
+    for journey_id, inicio in iniciadas.items():
+        fatos = por_id[journey_id]
+        ultimo = fatos[-1]
+        estado = {
+            "journey_resolved": "resolvidas",
+            "journey_abandoned": "abandonadas",
+        }.get(ultimo.tipo, "abertas")
+        estados[estado] += 1
+        reaberturas += sum(1 for e in fatos if e.tipo == "journey_reopened")
+
+        payload = inicio.payload or {}
+        por_tipo[payload.get("journey_type") or "other"] += 1
+        for carga in set(payload.get("loads") or []):
+            por_carga[carga] += 1
+
+        if ultimo.tipo == "journey_resolved":
+            tempos_resolucao.append(max(0.0, (ultimo.ts - inicio.ts).total_seconds()))
+
+    com_desfecho = estados["resolvidas"] + estados["abandonadas"]
+    return {
+        "iniciadas": len(iniciadas),
+        "resolvidas": estados["resolvidas"],
+        "abandonadas": estados["abandonadas"],
+        "abertas": estados["abertas"],
+        "reaberturas": reaberturas,
+        "taxa_resolucao": (
+            estados["resolvidas"] / com_desfecho if com_desfecho else None
+        ),
+        "por_tipo": dict(sorted(por_tipo.items())),
+        "por_carga": dict(sorted(por_carga.items())),
+        "tempo_resolucao_p50_s": percentil(tempos_resolucao, 0.50),
+        "tempo_resolucao_p95_s": percentil(tempos_resolucao, 0.95),
+    }
+
+
 async def produto(desde: datetime, contagens: dict[str, int] | None = None) -> dict:
     """As features fora do turno de conversa: cofre, pedidos, curadoria, convites.
 
@@ -565,6 +632,7 @@ async def coletar(dias: int = 30) -> dict:
         "ferramentas": await ferramentas(desde),
         "custo": await custo(desde),
         "lembretes": await lembretes(desde, contagens),
+        "jornadas": await jornadas(desde),
         "produto": await produto(desde, contagens),
         "saude": await saude(desde, contagens),
         "funil": await funil(desde),

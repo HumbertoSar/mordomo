@@ -11,12 +11,15 @@ doc `gestao-a-vista-agente-whatsapp.md`):
     reminder_fired · proactive_sent · unknown_user · document_stored ·
     dashboard_sent · curation_run · invite_created · invite_used · invite_rejected
 
+  ciclo de vida de uma necessidade (mesmo journey_id, possivelmente vários turnos):
+    journey_started · journey_resolved · journey_abandoned · journey_reopened
+
 Tipo novo emitido FORA de um turno tem que entrar em
 `reporting.queries.SEM_TURNO_POR_DESENHO`, senão infla o KPI de eventos
 órfãos do dashboard como falso positivo.
 
 REGRA DO PROJETO: emita sempre por `emitir_de(config, ...)`, nunca por `emitir()`
-direto, quando houver um `config` à mão. Evento sem `session_id`/`turn_id` não
+direto, quando houver um `config` à mão. Evento de turno sem `session_id`/`turn_id` não
 entra em nenhum funil — vira linha órfã que ninguém consegue cruzar depois.
 (Foi exatamente o que aconteceu no primeiro dia de uso: tool_called,
 reminder_created e message_sent nasceram sem sessão.)
@@ -37,6 +40,7 @@ async def emitir(
     member_id: int | None = None,
     session_id: str | None = None,
     turn_id: str | None = None,
+    journey_id: str | None = None,
     **payload,
 ) -> None:
     # ANTES do try: o registro em memória de efeito mutante não pode se perder
@@ -50,6 +54,7 @@ async def emitir(
                     member_id=member_id,
                     session_id=session_id,
                     turn_id=turn_id,
+                    journey_id=journey_id,
                     payload=payload,
                 )
             )
@@ -59,15 +64,16 @@ async def emitir(
 
 
 def contexto_de(config) -> dict:
-    """Extrai member/session/turn do `configurable` do LangGraph.
+    """Extrai member/session/journey/turn do `configurable` do LangGraph.
 
-    Mesmo canal por onde o member_id já viajava (ADR-003): a identidade e o
-    turno vêm SEMPRE do config, nunca do que o LLM disser."""
+    Mesmo canal por onde o member_id já viajava (ADR-003): a identidade, a
+    jornada e o turno vêm SEMPRE do config, nunca do que o LLM disser."""
     bruto = config.get("configurable", {}) if isinstance(config, dict) else {}
     return {
         "member_id": bruto.get("member_id"),
         "session_id": bruto.get("session_id"),
         "turn_id": bruto.get("turn_id"),
+        "journey_id": bruto.get("journey_id"),
     }
 
 
