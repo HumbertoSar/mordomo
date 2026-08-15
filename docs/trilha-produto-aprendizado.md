@@ -35,6 +35,10 @@ A experiência será analisada por três cargas:
 
 ## Roadmap paralelo
 
+**Estado atual:** Etapa 1 entregue; Etapa 2 implementada tecnicamente e entrando
+em uso real com a família. Etapa 3 permanece bloqueada até os dados revelarem
+um atrito concreto, conforme o portão definido ao final deste documento.
+
 | Etapa | Produto Mordomo | Analytics | Observabilidade | Evaluation | Evidência de saída |
 |---|---|---|---|---|---|
 | **1. Resolução** | Sem nova integração | Unidade `journey_id`, taxonomia e métricas de desfecho | Preparar correlação futura entre jornada e turno | Definir o que será avaliável | Eventos de jornada agregados sem confundir turno com resolução |

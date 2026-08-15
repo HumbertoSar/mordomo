@@ -40,8 +40,9 @@ PowerShell recusar, `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` uma ve
 Telegram (aiogram, polling) ─┐                ┌─ agents/supervisor.py  (roteia: Command/goto)
 WhatsApp (webhook + fila) ───┤→ contract.py   │→ agents/lembretes.py → tools/lembretes.py → scheduler.py
   whatsapp_webhook.py (HTTP) │  (Inbound/     │→ agents/agenda.py    → tools/agenda.py
-  whatsapp.py      (lógica)  │   Outbound     │→ agents/cofre.py     → tools/cofre.py
-  whatsapp_api.py  (Meta)    │   SEMÂNTICOS)  └─ core/graph.py (StateGraph + checkpointer Postgres)
+  whatsapp.py      (lógica)  │   Outbound     │→ agents/tarefas.py   → tools/tarefas.py
+  whatsapp_api.py  (Meta)    │   SEMÂNTICOS)  │→ agents/cofre.py     → tools/cofre.py
+                             │                └─ core/graph.py (StateGraph + checkpointer Postgres)
                              └→ core/pipeline.py — nasce o trace (Langfuse), o turn_id, o
                                 LOCK por thread e a trava de retry (core/efeitos.py)
 channels/comandos.py: /convidar e /vincular canal-agnósticos · channels/documentos.py: cofre
@@ -61,14 +62,17 @@ agents/_base.py: fábrica NoSubagente — subagente novo = prompt + 1 linha
    PERGUNTA — nunca inventa data.
 4. **Toda tool nova emite analytics por `analytics.emitir_de(config, ...)`** —
    nunca `emitir()` cru quando houver `config` à mão. `emitir_de` puxa
-   member/session/**turn_id** do `configurable`; evento sem `turn_id` não entra
+   member/session/**turn_id** e, quando houver, `journey_id` do `configurable`;
+   evento de turno sem `turn_id` não entra
    em nenhum funil e vira linha órfã (o dashboard tem um KPI só para vigiar
    isso, e ele tem que ficar em ZERO). Evento emitido FORA de um turno
    (comando, job proativo) tem que entrar em
    `reporting/queries.py::SEM_TURNO_POR_DESENHO`, senão vira falso órfão nesse
    KPI. Todo caminho de saída emite `tool_result`,
    inclusive os de falha — o `motivo` é o que vira caso novo no eval.
-   Falha de analytics nunca derruba a conversa.
+   Eventos operacionais toleram falha. Fatos que definem uma jornada e o estado
+   correspondente do domínio usam `analytics.evento_de(...)` na MESMA transação
+   (ver tarefas): não pode existir resolução sem mudança de estado, nem o inverso.
 5. **Mexeu em prompt ou em `resolver_data` → rode `make evals`** e anote o
    antes/depois (é o material do portfólio). Frases reais boas/ruins dos
    traces do Langfuse viram casos novos nos datasets.
@@ -193,7 +197,7 @@ Evaluation. A Etapa 1 introduz jornada e resolução como unidade acima do turno
 ### Próximos
 
 - [ ] Memória de longo prazo (LangGraph Store + extração em background / LangMem)
-- [ ] Subagente Tarefas (listas por pessoa + compartilhadas)
+
 - [ ] Subagente Curador (TMDB + onde assistir no BR, perfil por membro)
 - [ ] Subagente Mensageiro (Gmail) com `interrupt()` — HITL de verdade
 - [ ] Google Calendar no lugar da tabela própria — decidir ADR-004 (nativa vs. MCP)
@@ -204,6 +208,9 @@ Evaluation. A Etapa 1 introduz jornada e resolução como unidade acima do turno
 
 ### Entregue
 
+- [x] Subagente Tarefas — privadas/compartilhadas, responsável, prazo opcional,
+      listar, concluir, cancelar e reabrir; cada tarefa fecha ou reabre uma
+      jornada de Analytics e aparece no dashboard de resolução.
 - [x] Recorrência de lembretes (diária, semanal e mensal) + briefing matinal
       proativo; regras persistidas e reagendadas pelo scheduler.
 - [x] `/vincular` (onboarding sem seed script) — `/convidar` gera código (só

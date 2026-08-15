@@ -15,7 +15,15 @@ Tool mutante nova? Adicione em TOOLS_MUTANTES — o comentário-sentinela em
 tools/ aponta para cá."""
 
 TOOLS_MUTANTES = frozenset({
-    "criar_lembrete", "cancelar_lembrete", "criar_evento", "guardar_info", "apagar_info",
+    "criar_lembrete",
+    "cancelar_lembrete",
+    "criar_evento",
+    "guardar_info",
+    "apagar_info",
+    "criar_tarefa",
+    "concluir_tarefa",
+    "cancelar_tarefa",
+    "reabrir_tarefa",
 })
 
 _turnos_com_efeito: set[str] = set()

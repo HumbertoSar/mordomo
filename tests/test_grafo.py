@@ -68,11 +68,17 @@ class _AgenteFalso:
 
 
 def _roteador(texto: str) -> Decisao | None:
+    if "tarefa" in texto:
+        return Decisao(destino="tarefas")
     if "lembra" in texto:
         return Decisao(destino="lembretes")
     if "quebra-parse" in texto:
         return None
     return Decisao(destino="responder", resposta="Às ordens!")
+
+
+def test_supervisor_aceita_destino_tarefas():
+    assert _roteador("cria uma tarefa").destino == "tarefas"
 
 
 async def test_caminho_responder_termina_no_supervisor(monkeypatch):
@@ -96,6 +102,21 @@ async def test_caminho_subagente_flui_ate_a_resposta(monkeypatch):
         {"messages": [HumanMessage("me lembra de pagar o boleto")]}, _cfg(turn_id="t-sub")
     )
     assert resultado["messages"][-1].content == "Lembrete #7 criado!"
+
+
+async def test_caminho_tarefas_flui_ate_a_resposta(monkeypatch):
+    monkeypatch.setattr(
+        "mordomo.agents.supervisor.chat_model", lambda *a, **k: _ModeloFalso(_roteador)
+    )
+    monkeypatch.setattr(
+        "mordomo.agents.tarefas.no_tarefas.agente", _AgenteFalso("Tarefa #4 criada!")
+    )
+    grafo = build_graph()
+    resultado = await grafo.ainvoke(
+        {"messages": [HumanMessage("cria uma tarefa para comprar pão")]},
+        _cfg(turn_id="t-task-graph"),
+    )
+    assert resultado["messages"][-1].content == "Tarefa #4 criada!"
 
 
 async def test_falha_de_parse_nao_derruba_a_conversa(monkeypatch):
