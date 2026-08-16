@@ -483,11 +483,15 @@ async def _esquecer_credencial(member_id: int, motivo: str) -> None:
         log.warning("Google: credencial inutilizável esquecida (%s)", motivo)
 
 
+async def _limpar_se_morta(member_id: int, motivo: str) -> None:
+    if motivo in MOTIVOS_DE_CREDENCIAL_MORTA:
+        await _esquecer_credencial(member_id, motivo)
+
+
 async def _recusa(member_id: int, motivo: str) -> dict:
     """Emite a falha e, se o motivo for definitivo, limpa a credencial."""
     await emitir("google_test_event_failed", member_id, motivo=motivo)
-    if motivo in MOTIVOS_DE_CREDENCIAL_MORTA:
-        await _esquecer_credencial(member_id, motivo)
+    await _limpar_se_morta(member_id, motivo)
     return {"ok": False, "motivo": motivo, "link": None, "novo": False}
 
 
@@ -554,6 +558,233 @@ async def criar_evento_teste(
     # `renovou` distingue "o token ainda valia" de "precisei renovar antes".
     await emitir("google_test_event_created", member_id, renovou=renovou)
     return {"ok": True, "motivo": "ok", "link": link, "novo": True}
+
+
+# ── agenda da conversa (o que o subagente Agenda usa) ────────────────────
+#
+# Mesma credencial, mesmas regras de refresh e os MESMOS motivos categóricos do
+# /google_teste — o que muda é a origem: aqui o pedido nasce de uma conversa,
+# dentro de um turno. Por isso nada daqui emite analytics: quem chama é uma
+# tool, que emite `tool_result` com member/session/turn (regra nº 4). Emitir de
+# dentro viraria linha órfã no funil.
+
+# Prefixo do id do evento da conversa (base32hex: só `a`-`v` e `0`-`9`).
+_PREFIXO_ID_CONVERSA = "mordomoevento"
+
+
+def _id_do_evento_da_conversa(
+    member_id: int, turn_id: str | None, inicio: datetime, fim: datetime, titulo: str
+) -> str | None:
+    """Id determinístico POR TURNO — a trava contra a duplicata do retry.
+
+    O pipeline repete um turno inteiro quando o LLM trava (ADR-006); sem id
+    fixo, a repetição criaria um segundo evento no calendário da pessoa. Com
+    ele o Google devolve 409 e quem chama lê isso como "já está lá".
+
+    Pedir de novo mais tarde é outro `turn_id` — e aí PODE virar outro evento,
+    que é o certo: repetir um pedido é um pedido novo.
+
+    O título entra só como SEMENTE do sha256: o que viaja é o digest, que não
+    volta em analytics nem em log. Ele está aí para dois eventos diferentes
+    marcados no mesmo turno ("almoço 12h e jantar 20h") não colidirem.
+
+    Sem `turn_id` (chamada fora de turno) devolvemos None e deixamos o Google
+    gerar o id: um id fixo demais duplicaria pedidos legítimos."""
+    if not turn_id:
+        return None
+    semente = f"{member_id}:{turn_id}:{inicio.isoformat()}:{fim.isoformat()}:{titulo}"
+    return f"{_PREFIXO_ID_CONVERSA}{hashlib.sha256(semente.encode()).hexdigest()[:24]}"
+
+
+def _corpo_do_evento_da_conversa(
+    event_id: str | None, titulo: str, inicio: datetime, fim: datetime, local: str | None
+) -> dict:
+    fuso = ZoneInfo(settings.tz_familia)
+    corpo: dict = {
+        "summary": titulo,
+        # timeZone junto do dateTime: sem ele o Google interpreta no fuso do
+        # calendário, que não é necessariamente o da família.
+        "start": {
+            "dateTime": inicio.astimezone(fuso).isoformat(),
+            "timeZone": settings.tz_familia,
+        },
+        "end": {
+            "dateTime": fim.astimezone(fuso).isoformat(),
+            "timeZone": settings.tz_familia,
+        },
+    }
+    if event_id:
+        corpo["id"] = event_id
+    if local:
+        corpo["location"] = local
+    return corpo
+
+
+async def _com_token(conexao: GoogleConnection, api: GoogleAPI, agora: datetime, operacao):
+    """Roda `operacao(access_token)` com credencial válida.
+
+    Devolve (resultado, motivo, renovou). `resultado is None` significa que não
+    há credencial utilizável e `motivo` diz o caminho de volta. GoogleErro da
+    operação SOBE: o que 409/403/5xx significam é decisão de quem chamou.
+
+    Existe para o criar e o listar da conversa compartilharem exatamente as
+    regras de refresh já testadas (`_access_token_valido` + `_renovar`)."""
+    token, motivo, renovou = await _access_token_valido(conexao, api, agora)
+    if token is None:
+        return None, motivo, renovou
+    try:
+        resultado = await operacao(token)
+    except GoogleErro as falha:
+        if falha.motivo != "token_expirado":
+            raise
+    else:
+        return resultado, "ok", renovou
+    # Token revogado com validade ainda "no papel": renova e tenta UMA vez.
+    # Sem o limite, um 401 permanente viraria laço.
+    token, motivo = await _renovar(conexao, api)
+    if token is None:
+        return None, motivo, renovou
+    return await operacao(token), "ok", True
+
+
+async def _recusa_da_conversa(member_id: int, motivo: str) -> dict:
+    await _limpar_se_morta(member_id, motivo)
+    return {"ok": False, "motivo": motivo}
+
+
+async def criar_evento_na_agenda(
+    member_id: int,
+    *,
+    titulo: str,
+    inicio: datetime,
+    fim: datetime,
+    local: str | None = None,
+    turn_id: str | None = None,
+    api: GoogleAPI | None = None,
+    agora: datetime | None = None,
+) -> dict:
+    """Cria no calendário principal do membro o evento pedido na conversa.
+
+    Devolve {"ok", "motivo", "link", "novo", "renovou"}. Motivos de recusa,
+    categóricos: indisponivel · desconectado · reconectar · permissao_negada ·
+    rede_indisponivel · calendario_recusou.
+
+    NUNCA devolve ok=True sem o Google ter aceitado: quem chama não pode ter
+    como "fingir sucesso" — foi assim que um almoço real virou linha no banco e
+    nada no calendário."""
+    agora = agora or datetime.now(UTC)
+    if not disponivel():
+        return {"ok": False, "motivo": "indisponivel"}
+    conexao = await conexao_de(member_id)
+    if conexao is None:
+        return {"ok": False, "motivo": "desconectado"}
+
+    api_propria = api is None
+    api = api or GoogleAPI()
+    try:
+        event_id = _id_do_evento_da_conversa(member_id, turn_id, inicio, fim, titulo)
+        corpo = _corpo_do_evento_da_conversa(event_id, titulo, inicio, fim, local)
+        try:
+            criado, motivo, renovou = await _com_token(
+                conexao, api, agora, lambda token: api.criar_evento(token, corpo)
+            )
+        except GoogleErro as falha:
+            if falha.motivo == "evento_duplicado":
+                # Retry do MESMO turno: o evento já está lá. Sucesso — recriar é a
+                # duplicata que o id determinístico existe para impedir.
+                return {"ok": True, "motivo": "ja_criado", "link": None, "novo": False}
+            log.warning("Google: evento da conversa falhou (%s)", falha.motivo, exc_info=falha)
+            return await _recusa_da_conversa(member_id, falha.motivo)
+        if criado is None:
+            return await _recusa_da_conversa(member_id, motivo)
+        return {
+            "ok": True,
+            "motivo": "ok",
+            "link": criado.get("htmlLink"),
+            "novo": True,
+            "renovou": renovou,
+        }
+    finally:
+        if api_propria:
+            await api.fechar()
+
+
+def _instante_do_google(campo: dict) -> tuple[datetime | None, bool]:
+    """(quando, dia_inteiro) a partir de um `start`/`end` do Calendar.
+
+    Evento com hora vem em `dateTime`; evento de dia inteiro vem em `date`
+    (só a data, sem fuso) — ler só `dateTime` faria o feriado sumir da lista."""
+    if bruto := campo.get("dateTime"):
+        try:
+            return datetime.fromisoformat(bruto), False
+        except ValueError:
+            return None, False
+    if bruto := campo.get("date"):
+        try:
+            dia = datetime.fromisoformat(bruto)
+        except ValueError:
+            return None, True
+        return dia.replace(tzinfo=ZoneInfo(settings.tz_familia)), True
+    return None, False
+
+
+def _normalizar_evento(item: dict) -> dict | None:
+    inicio, dia_inteiro = _instante_do_google(item.get("start") or {})
+    if inicio is None:
+        return None
+    fim, _ = _instante_do_google(item.get("end") or {})
+    return {
+        "titulo": item.get("summary") or "(sem título)",
+        "inicio": inicio,
+        "fim": fim,
+        "dia_inteiro": dia_inteiro,
+        "local": item.get("location"),
+    }
+
+
+async def listar_eventos_da_agenda(
+    member_id: int,
+    *,
+    inicio: datetime,
+    fim: datetime,
+    maximo: int = 20,
+    api: GoogleAPI | None = None,
+    agora: datetime | None = None,
+) -> dict:
+    """Lê a janela [inicio, fim) do calendário principal do membro.
+
+    Devolve {"ok", "motivo", "eventos"} — cada evento já normalizado
+    ({titulo, inicio, fim, dia_inteiro, local}). Mesmos motivos categóricos da
+    criação."""
+    agora = agora or datetime.now(UTC)
+    if not disponivel():
+        return {"ok": False, "motivo": "indisponivel", "eventos": []}
+    conexao = await conexao_de(member_id)
+    if conexao is None:
+        return {"ok": False, "motivo": "desconectado", "eventos": []}
+
+    api_propria = api is None
+    api = api or GoogleAPI()
+    try:
+        try:
+            itens, motivo, _ = await _com_token(
+                conexao,
+                api,
+                agora,
+                lambda token: api.listar_eventos(token, inicio=inicio, fim=fim, maximo=maximo),
+            )
+        except GoogleErro as falha:
+            log.warning("Google: leitura da agenda falhou (%s)", falha.motivo, exc_info=falha)
+            recusa = await _recusa_da_conversa(member_id, falha.motivo)
+            return {**recusa, "eventos": []}
+        if itens is None:
+            recusa = await _recusa_da_conversa(member_id, motivo)
+            return {**recusa, "eventos": []}
+        eventos = [e for item in itens if (e := _normalizar_evento(item))]
+        return {"ok": True, "motivo": "ok", "eventos": eventos}
+    finally:
+        if api_propria:
+            await api.fechar()
 
 
 # ── Respostas dos comandos (texto puro, canal-agnóstico — ADR-001) ───────
