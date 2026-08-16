@@ -199,6 +199,21 @@ class TelegramAdapter:
             if resposta:
                 await msg.answer(resposta)
 
+        @self.dp.message(Command(*comandos.GOOGLE_COMANDOS))
+        async def google(msg: Message, command: CommandObject) -> None:
+            # Piloto Google Calendar (ADR-010). Mesma delegação do /conectar: a
+            # regra (só no privado, só membro conhecido) mora em
+            # channels/comandos.py e vale igual no WhatsApp — que já roteia
+            # todo "/" por lá sozinho, sem precisar de handler novo.
+            resposta = await comandos.responder(
+                "telegram",
+                str(msg.from_user.id),
+                f"/{command.command}",
+                privado=msg.chat.type == "private",
+            )
+            if resposta:
+                await msg.answer(resposta, disable_web_page_preview=True)
+
         @self.dp.message(Command("vincular"))
         async def vincular(msg: Message, command: CommandObject) -> None:
             if msg.chat.type != "private":

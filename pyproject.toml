@@ -20,6 +20,7 @@ dependencies = [
     "tzdata",                          # ZoneInfo no Windows não tem base de fusos própria
     "alembic>=1.19.1",
     "httpx>=0.27",                     # transcrição de áudio (Groq); já vinha via langfuse
+    "cryptography>=50.0.0",
 ]
 
 [dependency-groups]

@@ -26,6 +26,11 @@ RECUSA_DESCONHECIDO = (
     "o mordomo e me mande: /vincular CÓDIGO"
 )
 
+# Piloto Google Calendar (ADR-010). Underscore, e não espaço, porque o
+# Telegram só oferece autocompletar para /comando_assim — e no WhatsApp o
+# texto é digitado igual.
+GOOGLE_COMANDOS = ("google", "google_teste", "google_desconectar")
+
 AJUDA = (
     "Sou o mordomo da família. 🤵 Posso:\n"
     "• criar lembretes — \"me lembra amanhã às 8h de pagar o boleto\"\n"
@@ -49,12 +54,37 @@ def _partes(texto: str) -> tuple[str, str]:
     return comando, resto.strip()
 
 
-async def responder(canal: str, external_id: str, texto: str, privado: bool = True) -> str | None:
+async def responder(
+    canal: str,
+    external_id: str,
+    texto: str,
+    privado: bool = True,
+    api=None,
+) -> str | None:
     """Resposta do comando, ou None quando o texto não é um comando conhecido
-    (aí o adapter segue com o fluxo normal — o texto vai para o grafo)."""
+    (aí o adapter segue com o fluxo normal — o texto vai para o grafo).
+
+    `api` é injeção de transporte para os comandos que falam com serviço
+    externo (/google_teste), no mesmo espírito do `cliente` do WhatsAppAPI:
+    em produção fica None e o cliente real nasce na hora."""
     if not eh_comando(texto):
         return None
     comando, args = _partes(texto)
+
+    if comando in GOOGLE_COMANDOS:
+        # O link de consentimento é chave da conta Google de UMA pessoa —
+        # dito no grupo, qualquer um conecta o próprio calendário ao cadastro
+        # de outro. Mesma regra do /convidar (ADR-008).
+        if not privado:
+            return "Isso é assunto de privado — me chame lá. 🤫"
+        membro = await resolver_membro(canal, external_id)
+        if membro is None:
+            return RECUSA_DESCONHECIDO
+        # Import preguiçoso: quem roda sem a integração não carrega o módulo
+        # (e `cryptography` só é exigida de quem usa o Google).
+        from ..integracoes import google
+
+        return await google.responder_comando(comando, membro.id, api=api)
 
     if comando in ("start", "ajuda", "help"):
         membro = await resolver_membro(canal, external_id)

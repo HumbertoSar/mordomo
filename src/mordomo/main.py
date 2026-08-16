@@ -45,6 +45,18 @@ def validar_ambiente() -> None:
             + ", ".join(faltando)
             + " (ver docs/whatsapp-fase3.md)."
         )
+    # Limitação assumida do piloto (ADR-010): o callback do OAuth do Google é
+    # uma rota do MESMO FastAPI do webhook do WhatsApp — não subimos um segundo
+    # servidor por causa dele. Com WhatsApp desligado, /google entregaria um
+    # link de consentimento que não tem para onde voltar, e a família só
+    # descobriria isso no meio do consentimento.
+    if settings.google_habilitado and not settings.whatsapp_habilitado:
+        sys.exit(
+            "GOOGLE_* configurado, mas o WhatsApp não: o callback "
+            "/integracoes/google/callback só existe na borda HTTP do WhatsApp. "
+            "Configure as 4 variáveis do WhatsApp ou limpe as 4 do Google "
+            "(ver docs/google-calendar-piloto.md)."
+        )
 
 
 async def main() -> None:

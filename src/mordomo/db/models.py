@@ -11,6 +11,7 @@ from sqlalchemy import (
     ForeignKey,
     LargeBinary,
     String,
+    Text,
     TypeDecorator,
     UniqueConstraint,
 )
@@ -213,6 +214,60 @@ class InviteCode(Base):
     expira_em: Mapped[datetime] = mapped_column(TZDateTime)
     usado_por: Mapped[int | None] = mapped_column(ForeignKey("members.id"), nullable=True)
     usado_em: Mapped[datetime | None] = mapped_column(TZDateTime, nullable=True)
+
+
+# ── Integrações OAuth (piloto Google Calendar — ADR-010) ─────────────────
+
+
+class OAuthState(Base):
+    """`state` do OAuth: prova de que o callback responde a um pedido NOSSO.
+
+    Guarda o HASH do state, nunca o valor: quem tiver o dump do banco não
+    consegue forjar um callback. É o que amarra o código que volta do Google a
+    um `member_id` — a vinculação NUNCA vem da query string do usuário, que é
+    exatamente o buraco por onde entraria "conectei o calendário do vizinho".
+
+    Uso único (`usado_em`) e validade curta: sem isso, um callback repetido do
+    histórico do navegador reabriria a troca de código."""
+
+    __tablename__ = "oauth_states"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    provedor: Mapped[str] = mapped_column(String(20), default="google")
+    state_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    member_id: Mapped[int] = mapped_column(ForeignKey("members.id"), index=True)
+    criado_em: Mapped[datetime] = mapped_column(TZDateTime, default=agora_utc)
+    expira_em: Mapped[datetime] = mapped_column(TZDateTime)
+    usado_em: Mapped[datetime | None] = mapped_column(TZDateTime, nullable=True)
+
+
+class GoogleConnection(Base):
+    """Credencial do Google de UM membro (um membro, uma conexão).
+
+    Os tokens ficam CIFRADOS (integracoes/cripto.py) e a chave mora só em
+    variável de ambiente: dump do Postgres não abre calendário de ninguém.
+    Não guardamos e-mail nem nome da conta Google — o piloto não precisa
+    saber QUEM é a conta, só escrever no `primary` dela (ADR-005)."""
+
+    __tablename__ = "google_connections"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    member_id: Mapped[int] = mapped_column(ForeignKey("members.id"), unique=True, index=True)
+    access_token_cifrado: Mapped[str] = mapped_column(Text)
+    # None é normal: o Google só devolve refresh_token no PRIMEIRO consentimento.
+    refresh_token_cifrado: Mapped[str | None] = mapped_column(Text, nullable=True)
+    expira_em: Mapped[datetime | None] = mapped_column(TZDateTime, nullable=True)
+    escopo: Mapped[str] = mapped_column(String(300), default="")
+    # Idempotência do /google_teste: id determinístico do último evento, link
+    # para repetir a resposta sem criar outro, e QUANDO foi — é a janela
+    # deslizante que impede o comando repetido de virar dois eventos (ADR-010).
+    teste_event_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    teste_link: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    teste_criado_em: Mapped[datetime | None] = mapped_column(TZDateTime, nullable=True)
+    criado_em: Mapped[datetime] = mapped_column(TZDateTime, default=agora_utc)
+    atualizado_em: Mapped[datetime] = mapped_column(
+        TZDateTime, default=agora_utc, onupdate=agora_utc
+    )
 
 
 # ── Analytics (eventos de produto) ───────────────────────────────────────

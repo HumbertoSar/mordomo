@@ -92,6 +92,18 @@ class Settings(BaseSettings):
     # dev fica vazio e o observability lê o SHA direto de .git/.
     mordomo_release: str = ""
 
+    # ── Google Calendar (piloto, ADR-010) ────────────────────────────────
+    # Tudo vazio = integração DESLIGADA e o bot sobe igual (padrão Langfuse /
+    # WhatsApp). Como obter cada valor: docs/google-calendar-piloto.md.
+    google_client_id: str = ""
+    google_client_secret: str = ""
+    # Precisa bater EXATAMENTE com o "URI de redirecionamento autorizado" do
+    # Google Cloud Console — inclusive https e barra final.
+    google_redirect_uri: str = ""
+    # Chave Fernet dos tokens em repouso, SEPARADA das demais credenciais:
+    # `uv run python -m mordomo.integracoes.cripto` gera uma.
+    google_token_key: str = ""
+
     # Pedidos da família → issues (vazio = só registra em product_events)
     github_token: str = ""
     github_repo: str = "HumbertoSar/mordomo"
@@ -115,6 +127,18 @@ class Settings(BaseSettings):
             and self.whatsapp_phone_number_id
             and self.whatsapp_app_secret
             and self.whatsapp_verify_token
+        )
+
+    @property
+    def google_habilitado(self) -> bool:
+        """As QUATRO variáveis, ou nada. Meia configuração geraria uma URL de
+        consentimento que não sabe voltar — ou, pior, um token guardado em
+        claro por falta da chave de criptografia."""
+        return bool(
+            self.google_client_id
+            and self.google_client_secret
+            and self.google_redirect_uri
+            and self.google_token_key
         )
 
     @property

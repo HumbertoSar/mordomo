@@ -200,7 +200,8 @@ Evaluation. A Etapa 1 introduz jornada e resolução como unidade acima do turno
 
 - [ ] Subagente Curador (TMDB + onde assistir no BR, perfil por membro)
 - [ ] Subagente Mensageiro (Gmail) com `interrupt()` — HITL de verdade
-- [ ] Google Calendar no lugar da tabela própria — decidir ADR-004 (nativa vs. MCP)
+- [~] Google Calendar — piloto nativo Calendar-only (ADR-010): OAuth individual,
+      comandos determinísticos e evento de teste antes de integrar o LLM/agenda.
 - [ ] Simulador de personas (OpenEvals)
 - [~] **Canário e adoção do WhatsApp** — canal ativo em produção com um número;
       acompanhar entrega, leitura, custo, latência e erros por ~1 semana antes de
