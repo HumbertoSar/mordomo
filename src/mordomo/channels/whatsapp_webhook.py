@@ -69,6 +69,14 @@ def criar_app(adapter):
         adapter.enfileirar(payload)
         return Response(status_code=200)
 
+    # Callback OAuth do piloto Google (ADR-010). Entra SEMPRE, mesmo com a
+    # integração desligada: a rota então responde uma página educada, em vez
+    # de um 404 que ninguém sabe interpretar. Import preguiçoso pelo mesmo
+    # motivo do resto do módulo — quem não usa não carrega.
+    from ..integracoes.google_callback import criar_router
+
+    app.include_router(criar_router())
+
     @app.get("/healthz")
     async def saude():
         # Para o Caddy/monitoramento saberem que o processo está vivo sem

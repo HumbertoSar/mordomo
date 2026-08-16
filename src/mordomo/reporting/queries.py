@@ -545,6 +545,15 @@ SEM_TURNO_POR_DESENHO = (
     # Webhook reentregue pela Meta (retry de até 7 dias) e barrado pelo dedupe:
     # é fato de CANAL, não de turno — o turno original já aconteceu.
     "message_duplicated",
+    # Piloto Google Calendar (ADR-010): comando explícito e callback HTTP. O
+    # callback nem chega pelo canal — quem responde é o navegador, e não há
+    # turno de conversa a que amarrar.
+    "google_connection_started",
+    "google_connection_succeeded",
+    "google_connection_failed",
+    "google_test_event_created",
+    "google_test_event_failed",
+    "google_disconnected",
 )
 
 
