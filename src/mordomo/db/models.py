@@ -113,14 +113,18 @@ class Reminder(Base):
 
 
 class FamilyEvent(Base):
-    """Agenda simples no banco para o MVP rodar no dia 1.
-    Fase 2: trocar por Google Calendar (tool nativa ou MCP) — ver ADR em docs/adr."""
+    """Agenda COMPARTILHADA do Mordomo — o destino de quem ainda não conectou o
+    Google Agenda (ADR-010). Quem conectou tem o evento criado no Google e não
+    deixa linha aqui."""
 
     __tablename__ = "family_events"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     titulo: Mapped[str] = mapped_column(String(200))
     inicio_utc: Mapped[datetime] = mapped_column(TZDateTime)
+    # Fim opcional: nulo é o histórico (a tabela nasceu só com início, e foi
+    # assim que o "das 12h às 16h" de uma conversa real perdeu as 16h).
+    fim_utc: Mapped[datetime | None] = mapped_column(TZDateTime, nullable=True)
     local: Mapped[str | None] = mapped_column(String(200), nullable=True)
     criado_por: Mapped[int] = mapped_column(ForeignKey("members.id"))
     criado_em: Mapped[datetime] = mapped_column(TZDateTime, default=agora_utc)

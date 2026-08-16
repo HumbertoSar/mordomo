@@ -45,8 +45,45 @@ apaga os tokens locais e orienta a pessoa a revogar também em
 − Usa apenas o calendário principal.
 − Desconectar localmente não revoga o grant no Google nesta versão.
 
+## Fatia 2 — a agenda da conversa passa a usar a conta conectada
+
+**Status:** aceito · 16/08/2026 · disparado por incidente de produção
+
+O piloto provou OAuth, armazenamento e API, mas ficou preso aos comandos: com a
+conta já conectada, um pedido por áudio ("almoço com a Manuzinha da FGV amanhã
+das 12h às 16h") respondeu "evento criado", gravou `family_events` e não criou
+nada no Google. O fim às 16h também se perdeu: a tabela só tinha `inicio_utc`.
+
+Decisão:
+
+- **quem decide o destino é a tool, nunca o LLM**: existe conexão do membro →
+  Google Calendar `primary`; não existe → agenda compartilhada do Mordomo;
+- **a resposta nomeia o destino** ("Google Agenda" ou "agenda compartilhada do
+  Mordomo"). Ambiguidade aqui é o que faz alguém procurar no celular um evento
+  que está noutro lugar;
+- **sem fallback silencioso**: Google indisponível para quem está conectado é
+  falha declarada, com caminho (tentar de novo / `/google`). Gravar na agenda
+  local seria repetir o incidente com outro nome;
+- **credencial ilegível não vira agenda local**: quem conectou ouve "reconecte";
+- **término opcional** na tool e no prompt (`ate`), com releitura de expressão
+  só de hora ("16h") no dia do início e validação de fim > início. Sem término
+  dito, **1 hora** — o mesmo padrão do Google Calendar. `family_events` ganha
+  `fim_utc` (nulo no histórico: ninguém disse aquele término);
+- **idempotência por turno**: o id do evento é determinístico a partir de
+  `member_id + turn_id + início + fim + digest do título`, então o retry do
+  pipeline (ADR-006) toma 409 do Google em vez de duplicar. Pedido novo é outro
+  `turn_id` — e pode virar outro evento, que é o certo;
+- **leitura em janela curta** (`dias` normalizado, `singleEvents=true`, teto de
+  página) formatada em `America/Sao_Paulo`;
+- **analytics categórico** (`destino`, `motivo`, `novo`, `duracao_min`): título,
+  local, link e token continuam fora de `product_events` (ADR-005). As funções
+  da conversa não emitem nada por conta própria — quem emite é a tool, dentro
+  do turno, senão o evento nasceria órfão de `turn_id`.
+
+Continua fora desta fatia: escolher calendário, convidar participantes, editar
+ou cancelar evento pelo chat, e a agenda de um membro aparecer para outro.
+
 ## Próximo passo condicionado a evidência
 
-Somente após Humberto concluir e avaliar esta jornada, integrar a tool de agenda
-à conta conectada. Seleção de calendário, tarefas e permissões adicionais só
-entram quando houver necessidade observada — não por antecipação.
+Seleção de calendário, tarefas e permissões adicionais só entram quando houver
+necessidade observada — não por antecipação.

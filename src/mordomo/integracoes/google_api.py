@@ -15,6 +15,7 @@ Referências:
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 
 import httpx
 
@@ -148,20 +149,60 @@ class GoogleAPI:
             )
         except httpx.HTTPError as erro:
             raise GoogleErro("rede_indisponivel", detalhe=type(erro).__name__) from erro
-        if resposta.status_code == 401:
-            # Token expirado/revogado — quem chama decide renovar e repetir.
-            raise GoogleErro("token_expirado", 401)
-        if resposta.status_code == 403:
-            # Só permissão de verdade é definitiva: quota estourada é "tente
-            # mais tarde" e não pode custar a credencial de ninguém.
-            if _razoes(resposta) & RAZOES_DE_LIMITE:
-                raise GoogleErro("rede_indisponivel", 403, _resumo(resposta))
-            raise GoogleErro("permissao_negada", 403, _resumo(resposta))
         if resposta.status_code == 409:
             raise GoogleErro("evento_duplicado", 409)
-        if resposta.status_code >= 400:
-            raise GoogleErro("calendario_recusou", resposta.status_code, _resumo(resposta))
+        _conferir(resposta)
         return resposta.json()
+
+    async def listar_eventos(
+        self, access_token: str, *, inicio: datetime, fim: datetime, maximo: int = 20
+    ) -> list[dict]:
+        """GET .../calendars/primary/events na janela [inicio, fim).
+
+        `singleEvents=true` expande recorrência em ocorrências — sem ele um
+        evento semanal volta UMA vez, como regra de repetição, e o dia de hoje
+        aparece vazio. `orderBy=startTime` só é aceito junto com ele.
+
+        `maxResults` é teto de página: quem chama pede uma janela curta em vez
+        de paginar (o piloto lista dias, não anos)."""
+        url = f"{URL_CALENDARIO}/{CALENDARIO}/events"
+        parametros = {
+            "timeMin": _rfc3339(inicio),
+            "timeMax": _rfc3339(fim),
+            "singleEvents": "true",
+            "orderBy": "startTime",
+            "maxResults": str(maximo),
+        }
+        try:
+            resposta = await self.cliente.get(
+                url, params=parametros, headers={"Authorization": f"Bearer {access_token}"}
+            )
+        except httpx.HTTPError as erro:
+            raise GoogleErro("rede_indisponivel", detalhe=type(erro).__name__) from erro
+        _conferir(resposta)
+        itens = resposta.json().get("items")
+        return itens if isinstance(itens, list) else []
+
+
+def _rfc3339(quando: datetime) -> str:
+    """O Calendar exige RFC3339 com fuso; mandamos sempre em UTC (`Z`) para não
+    depender de como o calendário da pessoa está configurado."""
+    return quando.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
+def _conferir(resposta: httpx.Response) -> None:
+    """Traduz o status da chamada de calendário em GoogleErro categórico."""
+    if resposta.status_code == 401:
+        # Token expirado/revogado — quem chama decide renovar e repetir.
+        raise GoogleErro("token_expirado", 401)
+    if resposta.status_code == 403:
+        # Só permissão de verdade é definitiva: quota estourada é "tente
+        # mais tarde" e não pode custar a credencial de ninguém.
+        if _razoes(resposta) & RAZOES_DE_LIMITE:
+            raise GoogleErro("rede_indisponivel", 403, _resumo(resposta))
+        raise GoogleErro("permissao_negada", 403, _resumo(resposta))
+    if resposta.status_code >= 400:
+        raise GoogleErro("calendario_recusou", resposta.status_code, _resumo(resposta))
 
 
 def _razoes(resposta: httpx.Response) -> set[str]:
