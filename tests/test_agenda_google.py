@@ -19,11 +19,11 @@ from sqlalchemy import func, select
 
 from apoio import cfg_de, google_configurado
 from apoio import criar_membro as _membro
-from mordomo.db.models import FamilyEvent, ProductEvent
+from mordomo.db.models import EventProposal, FamilyEvent, ProductEvent
 from mordomo.db.session import Sessao
 from mordomo.integracoes import google
 from mordomo.integracoes.google_api import GoogleAPI
-from mordomo.tools.agenda import criar_evento, listar_agenda
+from mordomo.tools.agenda import confirmar_evento, listar_agenda, preparar_evento
 
 SP = ZoneInfo("America/Sao_Paulo")
 LINK = "https://calendar.google.com/event?eid=xyz"
@@ -33,20 +33,32 @@ TITULO = "almoço com a Manuzinha da FGV"
 # ── andaimes ─────────────────────────────────────────────────────────────
 
 
-def _gravador(respostas=None):
-    """Handler que guarda cada requisição; por padrão responde 200."""
+def _gravador(respostas=None, gets=None):
+    """Handler que guarda cada requisição; por padrão responde 200.
+
+    Duas filas SEPARADAS por método porque preparar um evento agora lê a agenda
+    ANTES de criar (checagem de conflito): uma fila única faria a resposta
+    escrita para a criação ser consumida por essa leitura. `respostas` roteia os
+    POST (criação e refresh de token); `gets`, as leituras."""
     chamadas: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         chamadas.append(request)
-        if respostas:
-            return respostas.pop(0)(request)
+        fila = gets if request.method == "GET" else respostas
+        if fila:
+            return fila.pop(0)(request)
         if request.method == "GET":
             return httpx.Response(200, json={"items": []})
         return httpx.Response(200, json={"id": "evt-1", "htmlLink": LINK})
 
     handler.chamadas = chamadas
     return handler
+
+
+def _posts(handler) -> list[httpx.Request]:
+    """Só as criações. A leitura de conflito da preparação é um GET e vem
+    ANTES — indexar `chamadas[0]` passaria a olhar para ela."""
+    return [c for c in handler.chamadas if c.method == "POST"]
 
 
 def _injetar(monkeypatch, handler) -> None:
@@ -108,9 +120,37 @@ def _amanha(hora: int) -> str:
 
 
 async def _criar(membro, turn, **campos) -> str:
-    argumentos = {"titulo": TITULO, "quando": _amanha(12), "ate": None, "local": None}
+    """Prepara E confirma — a jornada inteira de marcar um compromisso.
+
+    Marcar virou dois passos (ADR-010, fatia A): a primeira fala só PREPARA e
+    pede confirmação; quem grava é o "sim". Estes testes continuam sendo sobre o
+    que chega ao Google, então percorrem os dois passos e devolvem a resposta
+    da confirmação — que é onde a criação acontece. Se a preparação recusar
+    (data mal entendida, fim antes do início), é ELA que volta: não existe
+    proposta para confirmar, e é isso que os testes de recusa conferem."""
+    argumentos = {
+        "titulo": TITULO,
+        "quando": _amanha(12),
+        "ate": None,
+        "local": None,
+        "convidados": None,
+        "com_meet": False,
+    }
     argumentos.update(campos)
-    return await criar_evento.ainvoke(argumentos, cfg_de(membro, turn))
+    preparo = await preparar_evento.ainvoke(argumentos, cfg_de(membro, turn))
+    if not await _tem_proposta(membro.id):
+        return preparo
+    return await confirmar_evento.ainvoke({"codigo": None}, cfg_de(membro, f"{turn}-sim"))
+
+
+async def _tem_proposta(member_id: int) -> bool:
+    async with Sessao() as s:
+        res = await s.execute(
+            select(func.count())
+            .select_from(EventProposal)
+            .where(EventProposal.member_id == member_id, EventProposal.usado_em.is_(None))
+        )
+        return res.scalar_one() > 0
 
 
 # ── o incidente ──────────────────────────────────────────────────────────
@@ -141,7 +181,7 @@ async def test_termino_dito_na_fala_chega_ao_google(monkeypatch):
         _injetar(monkeypatch, handler)
         await _criar(membro, "t-ag-2", ate=_amanha(16))
 
-    corpo = json.loads(handler.chamadas[0].content)
+    corpo = json.loads(_posts(handler)[0].content)
     inicio = datetime.fromisoformat(corpo["start"]["dateTime"]).astimezone(SP)
     fim = datetime.fromisoformat(corpo["end"]["dateTime"]).astimezone(SP)
     assert (inicio.hour, inicio.minute) == (12, 0)
@@ -159,7 +199,7 @@ async def test_termino_so_com_hora_vale_no_dia_do_inicio(monkeypatch):
         _injetar(monkeypatch, handler)
         await _criar(membro, "t-ag-3", ate="16h")
 
-    corpo = json.loads(handler.chamadas[0].content)
+    corpo = json.loads(_posts(handler)[0].content)
     inicio = datetime.fromisoformat(corpo["start"]["dateTime"]).astimezone(SP)
     fim = datetime.fromisoformat(corpo["end"]["dateTime"]).astimezone(SP)
     assert fim.date() == inicio.date() and fim.hour == 16
@@ -174,7 +214,7 @@ async def test_sem_termino_usa_a_duracao_padrao(monkeypatch):
         _injetar(monkeypatch, handler)
         await _criar(membro, "t-ag-4")
 
-    corpo = json.loads(handler.chamadas[0].content)
+    corpo = json.loads(_posts(handler)[0].content)
     inicio = datetime.fromisoformat(corpo["start"]["dateTime"])
     fim = datetime.fromisoformat(corpo["end"]["dateTime"])
     assert fim - inicio == timedelta(minutes=DURACAO_PADRAO_MINUTOS)
@@ -206,21 +246,28 @@ async def test_google_fora_do_ar_nao_vira_evento_nativo(monkeypatch):
 
     assert await _eventos_nativos(membro.id) == [], "sem fallback silencioso"
     assert "criado" not in resposta.lower()
-    resultado = (await _tool_results("t-ag-6"))[-1]
+    # A criação (e a falha) acontecem no turno do "sim", não no da preparação.
+    resultado = (await _tool_results("t-ag-6-sim"))[-1]
     assert resultado.payload["ok"] is False
     assert resultado.payload["motivo"] == "calendario_recusou"
 
 
 async def test_credencial_revogada_pede_reconexao_sem_fingir_sucesso(monkeypatch):
     with google_configurado():
-        membro = await _conectado("AgendaGoogleRevogado", expira_em_min=-5)
-        handler = _gravador([lambda r: httpx.Response(400, json={"error": "invalid_grant"})])
+        membro = await _conectado("AgendaGoogleRevogado")
+        # O token ainda vale "no papel" (a preparação lê a agenda com ele), mas o
+        # consentimento foi revogado: a criação toma 401 e o refresh é recusado
+        # em definitivo. É esse par que significa "reconecte".
+        handler = _gravador([
+            lambda r: httpx.Response(401, json={"error": "invalid_credentials"}),
+            lambda r: httpx.Response(400, json={"error": "invalid_grant"}),
+        ])
         _injetar(monkeypatch, handler)
         resposta = await _criar(membro, "t-ag-7", ate=_amanha(16))
 
     assert await _eventos_nativos(membro.id) == []
     assert "/google" in resposta, "o caminho de volta tem que estar na resposta"
-    assert (await _tool_results("t-ag-7"))[-1].payload["motivo"] == "reconectar"
+    assert (await _tool_results("t-ag-7-sim"))[-1].payload["motivo"] == "reconectar"
 
 
 async def test_listar_com_google_fora_do_ar_nao_mostra_a_agenda_nativa(monkeypatch):
@@ -231,7 +278,7 @@ async def test_listar_com_google_fora_do_ar_nao_mostra_a_agenda_nativa(monkeypat
         # Longe de hoje de propósito: o banco de teste é compartilhado pela
         # sessão e o briefing matinal lê a agenda da família DO DIA.
         await _evento_nativo(membro, "dentista secreto", dias=30)
-        handler = _gravador([lambda r: httpx.Response(503, text="manutenção")])
+        handler = _gravador(gets=[lambda r: httpx.Response(503, text="manutenção")])
         _injetar(monkeypatch, handler)
         resposta = await listar_agenda.ainvoke({"dias": 60}, cfg_de(membro, "t-ag-8"))
 
@@ -243,9 +290,16 @@ async def test_listar_com_google_fora_do_ar_nao_mostra_a_agenda_nativa(monkeypat
 # ── idempotência por turno ───────────────────────────────────────────────
 
 
-async def test_retry_do_mesmo_turno_nao_duplica_no_google(monkeypatch):
-    """O pipeline repete o turno quando o LLM trava; o mesmo id de evento faz o
-    Google recusar com 409 — que aqui é sucesso, não falha."""
+async def test_mesma_proposta_executada_duas_vezes_nao_duplica_no_google(monkeypatch):
+    """Segunda trava da idempotência, no lado do Google.
+
+    A primeira é a proposta reivindicada (o "sim" repetido nem chega aqui —
+    ver tests/test_agenda_confirmacao.py). Esta cobre o que resta: se a mesma
+    proposta for executada de novo (corrida entre dois "sim", banco restaurado),
+    o id determinístico faz o Google responder 409 — e 409 é sucesso, não falha.
+
+    A chave é o CÓDIGO da proposta, não o turn_id: o "sim" chega num turno
+    diferente daquele em que o compromisso foi preparado."""
     with google_configurado():
         membro = await _conectado("AgendaGoogleRetry")
         handler = _gravador([
@@ -253,12 +307,20 @@ async def test_retry_do_mesmo_turno_nao_duplica_no_google(monkeypatch):
             lambda r: httpx.Response(409, json={"error": "duplicate"}),
         ])
         _injetar(monkeypatch, handler)
-        primeira = await _criar(membro, "t-ag-9", ate=_amanha(16))
-        segunda = await _criar(membro, "t-ag-9", ate=_amanha(16))
+        inicio = datetime.now(UTC) + timedelta(days=1)
+        argumentos = {
+            "titulo": TITULO,
+            "inicio": inicio,
+            "fim": inicio + timedelta(hours=1),
+            "chave": "proposta-abc",
+        }
+        primeira = await google.criar_evento_na_agenda(membro.id, **argumentos)
+        segunda = await google.criar_evento_na_agenda(membro.id, **argumentos)
 
-    ids = [json.loads(c.content)["id"] for c in handler.chamadas]
-    assert ids[0] == ids[1], "mesmo turno, mesmo id"
-    assert "Google Agenda" in primeira and "Google Agenda" in segunda
+    ids = [json.loads(c.content)["id"] for c in _posts(handler)]
+    assert ids[0] == ids[1], "mesma proposta, mesmo id"
+    assert primeira["ok"] and primeira["novo"] is True
+    assert segunda["ok"] and segunda["novo"] is False, "409 é 'já está lá', não erro"
     assert await _eventos_nativos(membro.id) == []
 
 
@@ -271,7 +333,7 @@ async def test_turno_novo_pode_criar_outro_evento(monkeypatch):
         await _criar(membro, "t-ag-10a", ate=_amanha(16))
         await _criar(membro, "t-ag-10b", ate=_amanha(16))
 
-    ids = [json.loads(c.content)["id"] for c in handler.chamadas]
+    ids = [json.loads(c.content)["id"] for c in _posts(handler)]
     assert ids[0] != ids[1]
 
 
@@ -283,7 +345,7 @@ async def test_id_do_evento_e_aceito_pelo_google(monkeypatch):
         _injetar(monkeypatch, handler)
         await _criar(membro, "t-ag-11", ate=_amanha(16))
 
-    identificador = json.loads(handler.chamadas[0].content)["id"]
+    identificador = json.loads(_posts(handler)[0].content)["id"]
     assert 5 <= len(identificador) <= 1024
     assert set(identificador) <= set("abcdefghijklmnopqrstuv0123456789")
 
@@ -310,7 +372,7 @@ async def test_listar_le_do_google_e_formata_no_fuso_da_familia(monkeypatch):
     }
     with google_configurado():
         membro = await _conectado("AgendaGoogleLista")
-        handler = _gravador([lambda r: httpx.Response(200, json=corpo)])
+        handler = _gravador(gets=[lambda r: httpx.Response(200, json=corpo)])
         _injetar(monkeypatch, handler)
         resposta = await listar_agenda.ainvoke({"dias": 7}, cfg_de(membro, "t-ag-12"))
 
@@ -345,7 +407,7 @@ async def test_evento_de_dia_inteiro_do_google_nao_quebra_a_listagem(monkeypatch
     }
     with google_configurado():
         membro = await _conectado("AgendaGoogleDiaInteiro")
-        handler = _gravador([lambda r: httpx.Response(200, json=corpo)])
+        handler = _gravador(gets=[lambda r: httpx.Response(200, json=corpo)])
         _injetar(monkeypatch, handler)
         resposta = await listar_agenda.ainvoke({"dias": 7}, cfg_de(membro, "t-ag-14"))
 
@@ -429,11 +491,13 @@ async def test_clientes_http_criados_pela_integracao_sao_fechados(monkeypatch):
         def __init__(self):
             self.fechado = False
 
-        async def criar_evento(self, access_token, evento):
+        async def criar_evento(self, access_token, evento, *, com_conferencia=False):
             return {"id": "evt-fechado", "htmlLink": LINK}
 
-        async def listar_eventos(self, access_token, *, inicio, fim, maximo):
-            return []
+        async def listar_eventos(self, access_token, *, inicio, fim, texto=None, teto=250):
+            # Mesma assinatura da GoogleAPI real (paginada): dublê com contrato
+            # velho esconderia justamente a quebra que ele deveria denunciar.
+            return {"itens": [], "truncado": False}
 
         async def fechar(self):
             self.fechado = True

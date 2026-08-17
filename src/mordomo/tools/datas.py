@@ -92,25 +92,65 @@ def _normalizar(expressao: str) -> str:
     return re.sub(r"\s+", " ", e).strip()              # remover "que vem" deixa espaço duplo
 
 
-def resolver_data(expressao: str, base: datetime | None = None) -> datetime | None:
-    """Expressão pt-BR → datetime com timezone da família, ou None."""
+def _parse(
+    expressao: str, base: datetime | None, preferencia: str
+) -> tuple[datetime | None, str]:
+    """(datetime no fuso da família, expressão JÁ normalizada).
+
+    Devolve a normalizada junto porque quem chama decide o que fazer com a
+    ausência de hora — e essa decisão se lê no TEXTO, não no resultado."""
     tz = ZoneInfo(settings.tz_familia)
-    expressao = _normalizar(expressao)
+    normalizada = _normalizar(expressao)
     ajustes = {
         "TIMEZONE": settings.tz_familia,
         "RETURN_AS_TIMEZONE_AWARE": True,
-        "PREFER_DATES_FROM": "future",   # "sexta" = a próxima sexta
-        "DATE_ORDER": "DMY",             # 05/09 = 5 de setembro
+        "PREFER_DATES_FROM": preferencia,   # "sexta" = a próxima sexta
+        "DATE_ORDER": "DMY",                # 05/09 = 5 de setembro
     }
     if base is not None:
         # dateparser espera base ingênua no fuso local
         ajustes["RELATIVE_BASE"] = base.astimezone(tz).replace(tzinfo=None)
-    dt = dateparser.parse(expressao, languages=["pt"], settings=ajustes)
+    dt = dateparser.parse(normalizada, languages=["pt"], settings=ajustes)
+    return (dt.astimezone(tz) if dt is not None else None), normalizada
+
+
+# Depois de `_normalizar`, TODA forma de hora ("8h", "às 18", "7 da noite",
+# "19h30") já virou HH:MM — então a presença de hora se decide no texto.
+_RGX_HORA = re.compile(r"\b\d{1,2}:\d{2}\b")
+
+
+def resolver_instante(
+    expressao: str, base: datetime | None = None, preferencia: str = "future"
+) -> tuple[datetime | None, bool]:
+    """Expressão pt-BR → (datetime no fuso da família, o usuário DISSE a hora?).
+
+    Separado de `resolver_data` porque as duas jornadas querem coisas
+    diferentes do mesmo parser:
+      - MARCAR um compromisso sem hora é pergunta (regra nº 3) → `resolver_data`
+        devolve None;
+      - CONSULTAR "o dia 7" sem hora é um pedido legítimo pelo DIA INTEIRO →
+        quem consulta precisa do 07/08 E do fato de que a hora não foi dita,
+        para transformar isso numa janela.
+
+    O "disse a hora?" vem do TEXTO, não do horário resolvido: para "ontem" o
+    dateparser herda a hora do relógio (10:00), e ler isso como hora dita faria
+    "o que eu tinha ontem?" começar às 10h e perder a manhã inteira.
+
+    `preferencia` é o `PREFER_DATES_FROM` do dateparser: "future" para marcar
+    ("sexta" é a próxima), "current_period" para consultar ("7 de agosto", numa
+    conversa de 17/08, é o 7 que passou — não o do ano que vem)."""
+    dt, normalizada = _parse(expressao, base, preferencia)
+    return dt, bool(dt is not None and _RGX_HORA.search(normalizada))
+
+
+def resolver_data(expressao: str, base: datetime | None = None) -> datetime | None:
+    """Expressão pt-BR → datetime com timezone da família, ou None."""
+    dt, normalizada = _parse(expressao, base, "future")
     if dt is None:
         return None
     # Meia-noite SILENCIOSA = o usuário não disse a hora ("dia 21" → 00:00 por
     # default do parser). Regra nº 3: sem hora, PERGUNTA — devolvemos None.
     # Meia-noite EXPLÍCITA sobrevive: "meia-noite" já virou "00:00" no texto.
-    if dt.hour == 0 and dt.minute == 0 and "00:00" not in expressao:
+    if dt.hour == 0 and dt.minute == 0 and "00:00" not in normalizada:
         return None
-    return dt.astimezone(tz)
+    return dt

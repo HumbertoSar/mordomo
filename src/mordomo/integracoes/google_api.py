@@ -37,6 +37,14 @@ CALENDARIO = "primary"
 # tarde resolve. 429 é o limite de uso do Google; 408, timeout da requisição.
 STATUS_TRANSITORIOS = frozenset({408, 429})
 
+# Tetos da leitura paginada. `POR_PAGINA` é o que cabe numa resposta do Google
+# (o máximo dele é 2500; 250 é o padrão e mantém a resposta pequena).
+# `TETO_EVENTOS` é o teto TOTAL de uma consulta e `MAX_PAGINAS` é o cinto de
+# segurança contra laço: página vazia com nextPageToken é resposta legal.
+POR_PAGINA = 250
+TETO_EVENTOS = 250
+MAX_PAGINAS = 20
+
 # Razões de 403 que são limite de uso, não permissão. O Google devolve 403 nos
 # dois casos e só o `reason` distingue — tratar quota como permissão negada
 # apagaria a credencial da família num pico de tráfego.
@@ -135,17 +143,28 @@ class GoogleAPI:
 
     # ── Calendar ─────────────────────────────────────────────────────────
 
-    async def criar_evento(self, access_token: str, evento: dict) -> dict:
+    async def criar_evento(
+        self, access_token: str, evento: dict, *, com_conferencia: bool = False
+    ) -> dict:
         """POST .../calendars/primary/events — devolve o evento criado.
 
         O `id` vai DENTRO do corpo: é ele que dá idempotência (o Google
         responde 409 se já existir um evento com aquele id no calendário).
         409 sobe como GoogleErro('evento_duplicado'), que quem chama trata
-        como sucesso — não como falha."""
+        como sucesso — não como falha.
+
+        `com_conferencia` liga `conferenceDataVersion=1`. Sem esse parâmetro de
+        QUERY o Google IGNORA o `conferenceData` do corpo e devolve 200 com um
+        evento sem Meet — foi assim que um "criei o link da videochamada" virou
+        um evento sem link nenhum (17/08/2026)."""
         url = f"{URL_CALENDARIO}/{CALENDARIO}/events"
+        parametros = {"conferenceDataVersion": "1"} if com_conferencia else None
         try:
             resposta = await self.cliente.post(
-                url, json=evento, headers={"Authorization": f"Bearer {access_token}"}
+                url,
+                json=evento,
+                params=parametros,
+                headers={"Authorization": f"Bearer {access_token}"},
             )
         except httpx.HTTPError as erro:
             raise GoogleErro("rede_indisponivel", detalhe=type(erro).__name__) from erro
@@ -155,33 +174,75 @@ class GoogleAPI:
         return resposta.json()
 
     async def listar_eventos(
-        self, access_token: str, *, inicio: datetime, fim: datetime, maximo: int = 20
-    ) -> list[dict]:
-        """GET .../calendars/primary/events na janela [inicio, fim).
+        self,
+        access_token: str,
+        *,
+        inicio: datetime,
+        fim: datetime,
+        texto: str | None = None,
+        teto: int = TETO_EVENTOS,
+    ) -> dict:
+        """GET .../calendars/primary/events na janela [inicio, fim), PAGINANDO.
+
+        Devolve {"itens", "truncado"}. `truncado=True` significa "a janela não
+        acabou, eu parei no teto" — e quem responde ao usuário tem que dizer
+        isso. Tratar página parcial como busca completa é o que fazia o Mordomo
+        responder "não encontrei" sem ter procurado (conversa real, 17/08/2026).
 
         `singleEvents=true` expande recorrência em ocorrências — sem ele um
         evento semanal volta UMA vez, como regra de repetição, e o dia de hoje
         aparece vazio. `orderBy=startTime` só é aceito junto com ele.
 
-        `maxResults` é teto de página: quem chama pede uma janela curta em vez
-        de paginar (o piloto lista dias, não anos)."""
+        `maxResults` é teto de PÁGINA (o Google nunca devolve mais que isso de
+        uma vez); quem limita o total é `teto`, seguindo `nextPageToken` até a
+        janela terminar ou o teto encher.
+
+        `texto` vai como `q` — a busca oficial do Calendar, feita no servidor:
+        sem ela, achar uma reunião pelo nome exigiria paginar a agenda toda."""
         url = f"{URL_CALENDARIO}/{CALENDARIO}/events"
         parametros = {
             "timeMin": _rfc3339(inicio),
             "timeMax": _rfc3339(fim),
             "singleEvents": "true",
             "orderBy": "startTime",
-            "maxResults": str(maximo),
         }
+        if texto:
+            parametros["q"] = texto
+
+        itens: list[dict] = []
+        pagina: str | None = None
+        # Teto de páginas além do teto de itens: página vazia com nextPageToken
+        # é resposta legal do Google (eventos filtrados), e sem este limite uma
+        # sequência dessas viraria laço.
+        for _ in range(MAX_PAGINAS):
+            restante = teto - len(itens)
+            if restante <= 0:
+                return {"itens": itens, "truncado": True}
+            consulta = dict(parametros, maxResults=str(min(restante, POR_PAGINA)))
+            if pagina:
+                consulta["pageToken"] = pagina
+            corpo = await self._pagina_de_eventos(url, consulta, access_token)
+            recebidos = corpo.get("items")
+            # Cortamos no teto aqui, sem confiar no `maxResults`: ele é um
+            # PEDIDO, e uma página maior que o combinado não pode furar o teto.
+            itens.extend((recebidos if isinstance(recebidos, list) else [])[:restante])
+            pagina = corpo.get("nextPageToken")
+            if not pagina:
+                # Sem token seguinte a janela ACABOU — mesmo que o teto tenha
+                # sido alcançado no exato último item.
+                return {"itens": itens[:teto], "truncado": False}
+        return {"itens": itens[:teto], "truncado": True}
+
+    async def _pagina_de_eventos(self, url: str, consulta: dict, access_token: str) -> dict:
         try:
             resposta = await self.cliente.get(
-                url, params=parametros, headers={"Authorization": f"Bearer {access_token}"}
+                url, params=consulta, headers={"Authorization": f"Bearer {access_token}"}
             )
         except httpx.HTTPError as erro:
             raise GoogleErro("rede_indisponivel", detalhe=type(erro).__name__) from erro
         _conferir(resposta)
-        itens = resposta.json().get("items")
-        return itens if isinstance(itens, list) else []
+        corpo = resposta.json()
+        return corpo if isinstance(corpo, dict) else {}
 
 
 def _rfc3339(quando: datetime) -> str:

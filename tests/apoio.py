@@ -5,6 +5,9 @@ config no MESMO formato do config_invocacao de produção (member/session/turn
 no configurable — ADR-003)."""
 
 import contextlib
+from datetime import UTC, datetime, timedelta
+
+import httpx
 
 from mordomo.db.models import Member
 from mordomo.db.session import Sessao
@@ -58,3 +61,57 @@ def google_configurado(**mudancas):
     finally:
         for campo, valor in anteriores.items():
             setattr(settings, campo, valor)
+
+
+# ── Google falso (MockTransport) — sem rede, sem chave (regra nº 7) ──────
+
+
+def gravador(respostas=None):
+    """Handler httpx que GUARDA cada requisição; por padrão responde 200.
+
+    `respostas` é uma fila de funções (request → Response) para o teste desenhar
+    a conversa com o Google passo a passo; esgotada, volta o padrão."""
+    chamadas: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        chamadas.append(request)
+        if respostas:
+            return respostas.pop(0)(request)
+        if request.method == "GET":
+            return httpx.Response(200, json={"items": []})
+        return httpx.Response(
+            200, json={"id": "evt-1", "htmlLink": "https://calendar.google.com/event?eid=xyz"}
+        )
+
+    handler.chamadas = chamadas
+    return handler
+
+
+def injetar_google(monkeypatch, handler) -> None:
+    """Faz `google.GoogleAPI()` nascer falando com o MockTransport.
+
+    As tools não recebem `api` (os argumentos delas são do LLM), então a
+    injeção acontece no ponto onde o cliente é criado."""
+    from mordomo.integracoes import google
+    from mordomo.integracoes.google_api import GoogleAPI
+
+    monkeypatch.setattr(
+        google,
+        "GoogleAPI",
+        lambda: GoogleAPI(cliente=httpx.AsyncClient(transport=httpx.MockTransport(handler))),
+    )
+
+
+async def membro_conectado(nome: str, *, expira_em_min: int = 60) -> Member:
+    """Membro com conexão Google válida (tokens de mentira, cifrados na hora)."""
+    from mordomo.integracoes import google
+
+    membro = await criar_membro(nome)
+    await google.salvar_conexao(
+        membro.id,
+        access_token="access-valido",
+        refresh_token="refresh-valido",
+        expira_em=datetime.now(UTC) + timedelta(minutes=expira_em_min),
+        escopo=google.ESCOPO,
+    )
+    return membro
