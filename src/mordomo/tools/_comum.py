@@ -12,10 +12,20 @@ from ..analytics import emitir_de
 from ..config import settings
 from .datas import resolver_data
 
+# Dia da semana em pt-BR, por índice de `weekday()` (0 = segunda). NÃO usamos
+# `%a`: o strftime segue o locale do PROCESSO — na VPS (LC_ALL=C) sai "Mon", e
+# instalar locale só para isto seria depender do sistema para formatar texto
+# nosso. Determinismo aqui também tira do LLM a conta do dia da semana, que ele
+# errou numa conversa real de 17/08/2026.
+DIAS_DA_SEMANA = ("seg", "ter", "qua", "qui", "sex", "sáb", "dom")
+
 
 def fmt_data(dt: datetime, dia_semana: bool = False) -> str:
-    formato = "%a %d/%m às %H:%M" if dia_semana else "%d/%m às %H:%M"
-    return dt.astimezone(ZoneInfo(settings.tz_familia)).strftime(formato)
+    local = dt.astimezone(ZoneInfo(settings.tz_familia))
+    corpo = local.strftime("%d/%m às %H:%M")
+    # O dia da semana sai do instante JÁ convertido: 23h30 de domingo em São
+    # Paulo é segunda em UTC, e converter tarde demais mudaria o dia.
+    return f"{DIAS_DA_SEMANA[local.weekday()]} {corpo}" if dia_semana else corpo
 
 
 async def resolver_ou_instruir(

@@ -32,7 +32,10 @@ from .reporting.queries import percentil
 
 log = logging.getLogger(__name__)
 
-_FERRAMENTAS_DE_DATA = ("criar_lembrete", "criar_evento")
+# Onde a expressão de tempo do usuário CHEGA (é no tool_called delas que ela
+# aparece). Na agenda quem recebe a frase é `preparar_evento`; `confirmar_evento`
+# executa valores já resolvidos e não vê expressão nenhuma.
+_FERRAMENTAS_DE_DATA = ("criar_lembrete", "preparar_evento", "consultar_agenda")
 
 
 async def coletar_achados(dias: int = 7) -> dict:

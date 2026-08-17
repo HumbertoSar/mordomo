@@ -130,6 +130,51 @@ class FamilyEvent(Base):
     criado_em: Mapped[datetime] = mapped_column(TZDateTime, default=agora_utc)
 
 
+class EventProposal(Base):
+    """Compromisso RESOLVIDO à espera do "sim" (ADR-010, fatia A).
+
+    Existe porque confirmar não pode significar "reler a frase". Na conversa
+    real de 17/08/2026 a data foi acertada, o usuário confirmou, e o LLM
+    remontou a expressão ("segunda, 24/08, das 9h") — que o parser recusou,
+    depois de o entendimento já estar certo. Aqui o que fica guardado é o
+    RESULTADO: instantes em UTC, convidados, Meet e destino. A confirmação
+    executa esses valores e não toca no parser.
+
+    `codigo` é opaco e é a identidade da proposta; `usado_em` é a trava de uso
+    único, tomada por UPDATE condicional (mesma técnica do `/vincular` e do
+    `state` do OAuth) — dois "sim" seguidos, ou o retry do pipeline, encontram
+    a proposta já reivindicada em vez de criar o segundo evento."""
+
+    __tablename__ = "event_proposals"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    codigo: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    member_id: Mapped[int] = mapped_column(ForeignKey("members.id"), index=True)
+    # De qual turno/jornada nasceu a proposta — o "sim" vem em OUTRO turno, e é
+    # isto que costura os dois lados no funil.
+    turn_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    journey_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    titulo: Mapped[str] = mapped_column(String(200))
+    inicio_utc: Mapped[datetime] = mapped_column(TZDateTime)
+    fim_utc: Mapped[datetime] = mapped_column(TZDateTime)
+    local: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # Lista de e-mails já validados na preparação. JSON porque é um punhado de
+    # endereços de UMA proposta efêmera — não é entidade que alguém consulte.
+    convidados: Mapped[list] = mapped_column(JSON, default=list)
+    com_meet: Mapped[bool] = mapped_column(default=False)
+    destino: Mapped[str] = mapped_column(String(10))        # google | nativo
+    criado_em: Mapped[datetime] = mapped_column(TZDateTime, default=agora_utc)
+    expira_em: Mapped[datetime] = mapped_column(TZDateTime)
+    usado_em: Mapped[datetime | None] = mapped_column(TZDateTime, nullable=True)
+    # `usado_em` significa apenas que um trabalhador REIVINDICOU a proposta;
+    # a chamada externa ainda pode estar em andamento. Só este campo autoriza
+    # responder ao próximo "sim" que o compromisso já foi criado.
+    concluido_em: Mapped[datetime | None] = mapped_column(TZDateTime, nullable=True)
+    # O que o Google devolveu, para o "sim" repetido responder a MESMA coisa
+    # sem chamar a API de novo.
+    link: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+
 class Task(Base):
     """Pendência acompanhável: o primeiro domínio que fecha uma jornada real."""
 

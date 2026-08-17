@@ -17,7 +17,10 @@ tools/ aponta para cá."""
 TOOLS_MUTANTES = frozenset({
     "criar_lembrete",
     "cancelar_lembrete",
-    "criar_evento",
+    # `preparar_evento` NÃO entra: preparar não grava em agenda nenhuma, e
+    # bloquear o retry por causa dela deixaria o turno sem resposta. Quem cria
+    # é `confirmar_evento` — e a proposta reivindicada é a segunda trava.
+    "confirmar_evento",
     "guardar_info",
     "apagar_info",
     "criar_tarefa",

@@ -597,7 +597,13 @@ def _id_do_evento_da_conversa(
 
 
 def _corpo_do_evento_da_conversa(
-    event_id: str | None, titulo: str, inicio: datetime, fim: datetime, local: str | None
+    event_id: str | None,
+    titulo: str,
+    inicio: datetime,
+    fim: datetime,
+    local: str | None,
+    convidados: list[str] | None = None,
+    com_meet: bool = False,
 ) -> dict:
     fuso = ZoneInfo(settings.tz_familia)
     corpo: dict = {
@@ -617,7 +623,60 @@ def _corpo_do_evento_da_conversa(
         corpo["id"] = event_id
     if local:
         corpo["location"] = local
+    if convidados:
+        corpo["attendees"] = [{"email": email} for email in convidados]
+    if com_meet:
+        # `requestId` é a idempotência DA CONFERÊNCIA: repetir a criação com o
+        # mesmo id devolve o mesmo Meet em vez de abrir outra sala. Deriva do
+        # mesmo id do evento, então é estável em todo retry.
+        corpo["conferenceData"] = {
+            "createRequest": {
+                "requestId": f"meet-{event_id or _digest(titulo, inicio)}",
+                "conferenceSolutionKey": {"type": "hangoutsMeet"},
+            }
+        }
     return corpo
+
+
+def _digest(titulo: str, inicio: datetime) -> str:
+    """Semente de reserva do requestId quando não há id de evento (chamada fora
+    de turno). O que viaja é o digest — nunca o título."""
+    return hashlib.sha256(f"{titulo}:{inicio.isoformat()}".encode()).hexdigest()[:24]
+
+
+def _conferencia_criada(criado: dict) -> str | None:
+    """O link do Meet que o Google DE FATO criou, ou None.
+
+    `hangoutLink` é o caminho curto; quando ele não vem, o link ainda pode
+    estar nos `entryPoints` do conferenceData. Ausente nos dois lugares
+    significa que não há videochamada — e quem responde não pode dizer que há."""
+    if link := criado.get("hangoutLink"):
+        return link
+    conferencia = criado.get("conferenceData")
+    if not isinstance(conferencia, dict):
+        return None
+    for entrada in conferencia.get("entryPoints") or []:
+        if (
+            isinstance(entrada, dict)
+            and entrada.get("entryPointType") == "video"
+            and (uri := entrada.get("uri"))
+        ):
+            return uri
+    return None
+
+
+def _convidados_aceitos(criado: dict) -> list[str]:
+    """Os convidados que o Google registrou no evento (o organizador não conta).
+
+    É a checagem contra o incidente: prometer convite e o evento nascer com
+    ZERO attendees. Só entra na resposta ao usuário o que voltou daqui."""
+    return [
+        pessoa["email"]
+        for pessoa in criado.get("attendees") or []
+        if isinstance(pessoa, dict)
+        and isinstance(pessoa.get("email"), str)
+        and not pessoa.get("organizer")
+    ]
 
 
 async def _com_token(conexao: GoogleConnection, api: GoogleAPI, agora: datetime, operacao):
@@ -659,15 +718,25 @@ async def criar_evento_na_agenda(
     inicio: datetime,
     fim: datetime,
     local: str | None = None,
+    convidados: list[str] | None = None,
+    com_meet: bool = False,
     turn_id: str | None = None,
+    chave: str | None = None,
     api: GoogleAPI | None = None,
     agora: datetime | None = None,
 ) -> dict:
     """Cria no calendário principal do membro o evento pedido na conversa.
 
-    Devolve {"ok", "motivo", "link", "novo", "renovou"}. Motivos de recusa,
-    categóricos: indisponivel · desconectado · reconectar · permissao_negada ·
-    rede_indisponivel · calendario_recusou.
+    Devolve {"ok", "motivo", "link", "novo", "renovou", "convidados_aceitos",
+    "meet_link"}. Motivos de recusa, categóricos: indisponivel · desconectado ·
+    reconectar · permissao_negada · rede_indisponivel · calendario_recusou.
+
+    `convidados_aceitos` e `meet_link` vêm do que o Google DEVOLVEU, não do que
+    foi pedido: é o que impede o Mordomo de anunciar um convite que não saiu ou
+    um Meet que não existe (incidente de 17/08/2026).
+
+    `chave` é a semente da idempotência quando o pedido atravessa turnos (o
+    código da proposta confirmada); sem ela, vale o `turn_id`.
 
     NUNCA devolve ok=True sem o Google ter aceitado: quem chama não pode ter
     como "fingir sucesso" — foi assim que um almoço real virou linha no banco e
@@ -682,17 +751,33 @@ async def criar_evento_na_agenda(
     api_propria = api is None
     api = api or GoogleAPI()
     try:
-        event_id = _id_do_evento_da_conversa(member_id, turn_id, inicio, fim, titulo)
-        corpo = _corpo_do_evento_da_conversa(event_id, titulo, inicio, fim, local)
+        event_id = _id_do_evento_da_conversa(
+            member_id, chave or turn_id, inicio, fim, titulo
+        )
+        corpo = _corpo_do_evento_da_conversa(
+            event_id, titulo, inicio, fim, local, convidados, com_meet
+        )
         try:
             criado, motivo, renovou = await _com_token(
-                conexao, api, agora, lambda token: api.criar_evento(token, corpo)
+                conexao,
+                api,
+                agora,
+                lambda token: api.criar_evento(token, corpo, com_conferencia=bool(com_meet)),
             )
         except GoogleErro as falha:
             if falha.motivo == "evento_duplicado":
-                # Retry do MESMO turno: o evento já está lá. Sucesso — recriar é a
-                # duplicata que o id determinístico existe para impedir.
-                return {"ok": True, "motivo": "ja_criado", "link": None, "novo": False}
+                # Retry do MESMO pedido: o evento já está lá. Sucesso — recriar é
+                # a duplicata que o id determinístico existe para impedir.
+                return {
+                    "ok": True,
+                    "motivo": "ja_criado",
+                    "link": None,
+                    "novo": False,
+                    # 409 não traz o corpo do evento existente. Ele prova a
+                    # idempotência, mas NÃO prova attendees ou Meet.
+                    "convidados_aceitos": [],
+                    "meet_link": None,
+                }
             log.warning("Google: evento da conversa falhou (%s)", falha.motivo, exc_info=falha)
             return await _recusa_da_conversa(member_id, falha.motivo)
         if criado is None:
@@ -703,6 +788,8 @@ async def criar_evento_na_agenda(
             "link": criado.get("htmlLink"),
             "novo": True,
             "renovou": renovou,
+            "convidados_aceitos": _convidados_aceitos(criado),
+            "meet_link": _conferencia_criada(criado),
         }
     finally:
         if api_propria:
@@ -729,6 +816,14 @@ def _instante_do_google(campo: dict) -> tuple[datetime | None, bool]:
 
 
 def _normalizar_evento(item: dict) -> dict | None:
+    """Item do Calendar → dicionário do domínio, ou None se não serve.
+
+    Evento CANCELADO some aqui: com `singleEvents=true` uma ocorrência
+    desmarcada de série ainda volta na lista, com `status: "cancelled"` — e
+    contá-la faria o Mordomo listar (ou acusar conflito com) um compromisso que
+    não existe mais."""
+    if item.get("status") == "cancelled":
+        return None
     inicio, dia_inteiro = _instante_do_google(item.get("start") or {})
     if inicio is None:
         return None
@@ -747,41 +842,53 @@ async def listar_eventos_da_agenda(
     *,
     inicio: datetime,
     fim: datetime,
-    maximo: int = 20,
+    texto: str | None = None,
+    teto: int = 250,
     api: GoogleAPI | None = None,
     agora: datetime | None = None,
 ) -> dict:
     """Lê a janela [inicio, fim) do calendário principal do membro.
 
-    Devolve {"ok", "motivo", "eventos"} — cada evento já normalizado
-    ({titulo, inicio, fim, dia_inteiro, local}). Mesmos motivos categóricos da
-    criação."""
+    Devolve {"ok", "motivo", "eventos", "truncado"} — cada evento já
+    normalizado ({titulo, inicio, fim, dia_inteiro, local}). Mesmos motivos
+    categóricos da criação.
+
+    `truncado=True` é "a janela não acabou": quem responde ao usuário NÃO pode
+    dizer "não encontrei" nem "está livre" nesse caso. Em falha, `truncado`
+    também é True — não vimos a janela inteira, vimos nada."""
     agora = agora or datetime.now(UTC)
     if not disponivel():
-        return {"ok": False, "motivo": "indisponivel", "eventos": []}
+        return {"ok": False, "motivo": "indisponivel", "eventos": [], "truncado": True}
     conexao = await conexao_de(member_id)
     if conexao is None:
-        return {"ok": False, "motivo": "desconectado", "eventos": []}
+        return {"ok": False, "motivo": "desconectado", "eventos": [], "truncado": True}
 
     api_propria = api is None
     api = api or GoogleAPI()
     try:
         try:
-            itens, motivo, _ = await _com_token(
+            pagina, motivo, _ = await _com_token(
                 conexao,
                 api,
                 agora,
-                lambda token: api.listar_eventos(token, inicio=inicio, fim=fim, maximo=maximo),
+                lambda token: api.listar_eventos(
+                    token, inicio=inicio, fim=fim, texto=texto, teto=teto
+                ),
             )
         except GoogleErro as falha:
             log.warning("Google: leitura da agenda falhou (%s)", falha.motivo, exc_info=falha)
             recusa = await _recusa_da_conversa(member_id, falha.motivo)
-            return {**recusa, "eventos": []}
-        if itens is None:
+            return {**recusa, "eventos": [], "truncado": True}
+        if pagina is None:
             recusa = await _recusa_da_conversa(member_id, motivo)
-            return {**recusa, "eventos": []}
-        eventos = [e for item in itens if (e := _normalizar_evento(item))]
-        return {"ok": True, "motivo": "ok", "eventos": eventos}
+            return {**recusa, "eventos": [], "truncado": True}
+        eventos = [e for item in pagina["itens"] if (e := _normalizar_evento(item))]
+        return {
+            "ok": True,
+            "motivo": "ok",
+            "eventos": eventos,
+            "truncado": bool(pagina["truncado"]),
+        }
     finally:
         if api_propria:
             await api.fechar()

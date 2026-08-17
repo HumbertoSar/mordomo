@@ -12,6 +12,7 @@ tool diz que NÃO conseguiu e devolve o caminho (tentar de novo / reconectar).
 Gravar na agenda local nesse caso seria repetir o incidente de 16/08/2026 —
 "evento criado", nada no calendário da pessoa."""
 
+import re
 from datetime import UTC, datetime, timedelta
 from functools import partial
 from zoneinfo import ZoneInfo
@@ -20,13 +21,15 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 from sqlalchemy import select
 
+from .. import propostas
 from ..analytics import emitir_de
 from ..config import settings
 from ..db.models import FamilyEvent
 from ..db.session import Sessao
 from ..integracoes import google
-from ._comum import fmt_data, resolver_ou_instruir
+from ._comum import DIAS_DA_SEMANA, fmt_data, resolver_ou_instruir
 from .datas import resolver_data
+from .periodos import resolver_janela
 
 _fmt = partial(fmt_data, dia_semana=True)  # agenda mostra o dia da semana
 
@@ -35,10 +38,21 @@ _fmt = partial(fmt_data, dia_semana=True)  # agenda mostra o dia da semana
 # é ser previsível e estar escrito (aqui e no prompt do subagente).
 DURACAO_PADRAO_MINUTOS = 60
 
-# Teto de uma página do Calendar. A janela é de dias, não de anos: pedir mais
-# que isso seria despejar a agenda inteira dentro do contexto do LLM.
-MAX_EVENTOS = 20
+# Teto TOTAL de eventos de uma consulta (não de página — a leitura pagina até
+# fechar a janela). Alcançar o teto não é "acabou": a resposta declara que
+# ficou incompleta, senão "não encontrei" vira mentira.
+MAX_EVENTOS = 100
 MAX_DIAS = 30
+
+# Quantos eventos cabem numa resposta de chat antes de virar parede de texto.
+# O que passar disso é contado, não listado.
+MAX_LINHAS = 15
+
+
+def _agora() -> datetime:
+    """O relógio da agenda em UM lugar — é o que os testes congelam."""
+    return datetime.now(UTC)
+
 
 AGENDA_NATIVA = "agenda compartilhada do Mordomo"
 AGENDA_GOOGLE = "Google Agenda"
@@ -95,14 +109,23 @@ def _intervalo(inicio: datetime, fim: datetime | None) -> str:
     return f"{_fmt(inicio)} até {_fmt(fim)}"
 
 
-# ── criar ────────────────────────────────────────────────────────────────
+# ── preparar (resolve tudo, NÃO grava em agenda nenhuma) ─────────────────
 
 
 @tool
-async def criar_evento(
-    titulo: str, quando: str, ate: str | None, local: str | None, config: RunnableConfig
+async def preparar_evento(
+    titulo: str,
+    quando: str,
+    ate: str | None,
+    local: str | None,
+    convidados: list[str] | None,
+    com_meet: bool,
+    config: RunnableConfig,
 ) -> str:
-    """Cria um compromisso na agenda de quem está falando.
+    """PREPARA um compromisso e devolve o resumo para o usuário confirmar.
+
+    NÃO cria nada: quem cria é `confirmar_evento`, depois do "sim". Use esta
+    tool mesmo quando a frase já vier completa.
 
     Args:
         titulo: ex. "consulta pediatra do João".
@@ -111,26 +134,158 @@ async def criar_evento(
         ate: quando TERMINA, se o usuário disse ("amanhã às 16h", ou só "16h").
             Use null quando ele não disse: o compromisso dura 1 hora.
         local: opcional (ex. "clínica do centro").
+        convidados: e-mails de quem deve ser convidado, se o usuário deu algum.
+            Só endereços de e-mail completos; use null quando não houver.
+        com_meet: true só se o usuário pediu link de videochamada/Google Meet.
     """
     member_id = config["configurable"]["member_id"]
     await emitir_de(
-        config, "tool_called", tool="criar_evento", quando=quando, com_termino=bool(ate)
+        config,
+        "tool_called",
+        tool="preparar_evento",
+        quando=quando,
+        com_termino=bool(ate),
+        n_convidados=len(convidados or []),
+        com_meet=bool(com_meet),
     )
-    inicio, instrucao = await resolver_ou_instruir(quando, config, "criar_evento")
+    inicio, instrucao = await resolver_ou_instruir(quando, config, "preparar_evento")
     if instrucao:
         return instrucao
 
     if ate:
         fim, motivo = _resolver_fim(ate, inicio)
         if fim is None:
-            await emitir_de(config, "tool_result", tool="criar_evento", ok=False, motivo=motivo)
+            await emitir_de(
+                config, "tool_result", tool="preparar_evento", ok=False, motivo=motivo
+            )
             return _INSTRUCAO_DE_TERMINO[motivo].format(ate=ate)
     else:
         fim = inicio + timedelta(minutes=DURACAO_PADRAO_MINUTOS)
 
-    if await _conexao_google(member_id) is None:
-        return await _criar_na_agenda_nativa(config, member_id, titulo, inicio, fim, local)
-    return await _criar_no_google(config, member_id, titulo, inicio, fim, local)
+    convidados = [c.strip() for c in (convidados or []) if c and c.strip()]
+    if invalidos := [c for c in convidados if not _EMAIL.fullmatch(c)]:
+        await emitir_de(
+            config,
+            "tool_result",
+            tool="preparar_evento",
+            ok=False,
+            motivo="convidado_sem_email",
+        )
+        return (
+            f"NÃO consegui usar {len(invalidos)} convidado(s): o Google convida por "
+            "E-MAIL, e o que veio não é um endereço. Peça ao usuário o e-mail de "
+            "quem ele quer convidar (ou confirme sem convidados)."
+        )
+
+    conectado = await _conexao_google(member_id) is not None
+    destino = "google" if conectado else "nativo"
+    conflitos, incerto = (
+        await _conflitos_no_google(member_id, inicio, fim) if conectado else ([], False)
+    )
+
+    proposta = await propostas.guardar(
+        member_id,
+        titulo=titulo,
+        inicio=inicio,
+        fim=fim,
+        local=local,
+        convidados=convidados,
+        com_meet=bool(com_meet),
+        destino=destino,
+        turn_id=config.get("configurable", {}).get("turn_id"),
+        journey_id=config.get("configurable", {}).get("journey_id"),
+    )
+    await emitir_de(
+        config,
+        "tool_result",
+        tool="preparar_evento",
+        ok=True,
+        destino=destino,
+        duracao_min=int((fim - inicio).total_seconds() // 60),
+        n_convidados=len(convidados),
+        com_meet=bool(com_meet),
+        n_conflitos=len(conflitos),
+        conflito_incerto=incerto,
+    )
+    return _resumo_para_confirmar(proposta, conflitos, incerto)
+
+
+# E-mail "bom o bastante": o que o Google aceita como convidado. Não validamos
+# domínio nem existência — só evitamos mandar "o Xiao" no `attendees`, que faz
+# a criação inteira falhar DEPOIS do sim.
+_EMAIL = re.compile(r"[^@\s]+@[^@\s.]+\.[^@\s]+")
+
+
+def _resumo_para_confirmar(proposta, conflitos: list[dict], incerto: bool) -> str:
+    """O texto que o usuário confere antes de dizer sim.
+
+    Mostra TUDO o que vai ser executado — inclusive o que NÃO vai (a agenda do
+    Mordomo não convida ninguém). Prometer no resumo o que a execução não faz é
+    exatamente o defeito de 17/08/2026, só que mais cedo."""
+    onde = AGENDA_GOOGLE if proposta.destino == "google" else AGENDA_NATIVA
+    linhas = [
+        f"Confira antes de eu marcar (na {onde}):",
+        f"• {proposta.titulo}",
+        f"• {_intervalo(proposta.inicio_utc, proposta.fim_utc)}",
+    ]
+    if proposta.local:
+        linhas.append(f"• Local: {proposta.local}")
+    if proposta.convidados:
+        linhas.append(f"• Convidados: {', '.join(proposta.convidados)}")
+    if proposta.com_meet:
+        linhas.append("• Com link do Google Meet")
+    if proposta.destino == "nativo" and (proposta.convidados or proposta.com_meet):
+        linhas.append(
+            "ATENÇÃO: esta pessoa NÃO tem Google Agenda conectado — a agenda "
+            "compartilhada do Mordomo não manda convite nem cria Meet. Diga isso "
+            "com todas as letras e ofereça /google para conectar."
+        )
+    if conflitos:
+        linhas.append(f"ATENÇÃO, já há {len(conflitos)} compromisso(s) nesse horário:")
+        linhas += [f"  - {_linha_de_evento(e)}" for e in conflitos[:3]]
+        linhas.append("Mostre o conflito e pergunte se marca mesmo assim (não decida sozinho).")
+    elif incerto:
+        linhas.append(
+            "ATENÇÃO: NÃO consegui conferir se esse horário está livre. Diga isso "
+            "ao usuário — não afirme que a agenda está livre."
+        )
+    linhas.append(
+        "Peça a confirmação do usuário. Quando ele confirmar, chame "
+        "`confirmar_evento`; se desistir, chame `descartar_evento`."
+    )
+    return "\n".join(linhas)
+
+
+# ── conflitos (leitura determinística, antes do sim) ─────────────────────
+
+
+async def _conflitos_no_google(
+    member_id: int, inicio: datetime, fim: datetime
+) -> tuple[list[dict], bool]:
+    """(compromissos que se sobrepõem, "a leitura foi incompleta?").
+
+    A checagem é do CÓDIGO, não do LLM: o modelo não tem como saber o que há na
+    agenda e, quando chuta, chuta "está livre". Leitura falha ou truncada volta
+    como incerteza declarada — nunca como agenda vazia."""
+    resultado = await google.listar_eventos_da_agenda(
+        member_id, inicio=inicio, fim=fim, teto=MAX_EVENTOS
+    )
+    if not resultado["ok"]:
+        return [], True
+    conflitos = [e for e in resultado["eventos"] if _sobrepoe(e, inicio, fim)]
+    return sorted(conflitos, key=lambda e: e["inicio"]), bool(resultado["truncado"])
+
+
+def _sobrepoe(evento: dict, inicio: datetime, fim: datetime) -> bool:
+    """Sobreposição REAL de intervalos meio-abertos: encostar não é conflito.
+
+    Um evento que termina 09:00 não atrapalha outro que começa 09:00 — tratar
+    isso como conflito encheria a preparação de alarme falso. Evento de dia
+    inteiro entra normalmente: o `end.date` do Google já o descreve como
+    intervalo (e é ele que cobre o dia)."""
+    comeco = evento["inicio"]
+    termino = evento["fim"] or comeco
+    return comeco < fim and termino > inicio
 
 
 async def _conexao_google(member_id: int):
@@ -143,71 +298,225 @@ async def _conexao_google(member_id: int):
     return await google.conexao_de(member_id)
 
 
-async def _criar_no_google(
-    config, member_id: int, titulo: str, inicio: datetime, fim: datetime, local: str | None
-) -> str:
+# ── confirmar (o único caminho que grava) ────────────────────────────────
+
+
+@tool
+async def confirmar_evento(codigo: str | None, config: RunnableConfig) -> str:
+    """CONFIRMA o compromisso preparado e o cria de verdade.
+
+    Chame só depois de o usuário confirmar o resumo de `preparar_evento`.
+
+    Args:
+        codigo: deixe null. Só preencha se eu tiver perguntado QUAL dos
+            compromissos preparados o usuário quer confirmar.
+    """
+    member_id = config["configurable"]["member_id"]
+    await emitir_de(config, "tool_called", tool="confirmar_evento", com_codigo=bool(codigo))
+
+    proposta, motivo = await propostas.reivindicar(member_id, codigo)
+    if motivo == "ja_usada":
+        if proposta is not None and proposta.concluido_em is None:
+            # `usado_em` é adquirido antes da chamada externa. Nesse intervalo,
+            # a trava prova apenas que há outro trabalhador — não que já criou.
+            await emitir_de(
+                config,
+                "tool_result",
+                tool="confirmar_evento",
+                ok=False,
+                motivo="em_processamento",
+            )
+            return (
+                "Esse compromisso AINDA ESTÁ sendo processado. Não vou duplicar; "
+                "peça ao usuário para aguardar um instante e consultar a agenda."
+            )
+        # O "sim" repetido depois da conclusão — o evento já existe. Isto é
+        # sucesso: recriar seria a duplicata que a trava existe para impedir.
+        await emitir_de(
+            config, "tool_result", tool="confirmar_evento", ok=True, motivo="ja_criado", novo=False
+        )
+        ver = f"\nVer: {proposta.link}" if proposta and proposta.link else ""
+        return (
+            "Esse compromisso eu JÁ criei — é o mesmo, não vou duplicar. "
+            f"Diga isso ao usuário.{ver}"
+        )
+    if proposta is None:
+        await emitir_de(
+            config, "tool_result", tool="confirmar_evento", ok=False, motivo=motivo
+        )
+        return _INSTRUCAO_SEM_PROPOSTA[motivo]
+
+    if proposta.destino == "nativo":
+        return await _gravar_na_agenda_nativa(config, proposta)
+    return await _gravar_no_google(config, proposta)
+
+
+_INSTRUCAO_SEM_PROPOSTA = {
+    "ausente": (
+        "NÃO há nenhum compromisso preparado para confirmar. NÃO invente que "
+        "marcou nada: pergunte ao usuário o que ele quer marcar e prepare de novo."
+    ),
+    "expirada": (
+        "O compromisso preparado EXPIROU (faz tempo demais). NÃO afirme que "
+        "marcou: confirme os dados com o usuário e prepare de novo."
+    ),
+    "ambigua": (
+        "Há MAIS DE UM compromisso preparado e eu não sei qual foi confirmado. "
+        "Pergunte ao usuário qual deles ele quer marcar — não escolha por ele."
+    ),
+    "de_outro_membro": (
+        "Esse compromisso preparado NÃO é desta pessoa e eu não vou criá-lo. "
+        "Pergunte o que ELA quer marcar e prepare de novo."
+    ),
+}
+
+
+async def _gravar_no_google(config, proposta) -> str:
     resultado = await google.criar_evento_na_agenda(
-        member_id,
-        titulo=titulo,
-        inicio=inicio,
-        fim=fim,
-        local=local,
-        # A trava contra o retry do pipeline: mesmo turno, mesmo id de evento.
-        turn_id=config.get("configurable", {}).get("turn_id"),
+        proposta.member_id,
+        titulo=proposta.titulo,
+        inicio=proposta.inicio_utc,
+        fim=proposta.fim_utc,
+        local=proposta.local,
+        convidados=list(proposta.convidados or []),
+        com_meet=bool(proposta.com_meet),
+        # A trava contra a duplicata: o id do evento nasce do CÓDIGO da
+        # proposta, que é o mesmo em todo retry — e muda a cada pedido novo.
+        chave=proposta.codigo,
     )
     if not resultado["ok"]:
+        # A proposta volta a valer: o evento não existe, e queimá-la deixaria o
+        # usuário sem compromisso e sem como repetir o "sim".
+        await propostas.devolver(proposta.id)
         await emitir_de(
             config,
             "tool_result",
-            tool="criar_evento",
+            tool="confirmar_evento",
             ok=False,
             destino="google",
             motivo=resultado["motivo"],
         )
         return _FALHA_AO_CRIAR.get(resultado["motivo"], _FALHA_GENERICA_AO_CRIAR)
+
+    await propostas.concluir(proposta.id, link=resultado.get("link"))
+    convidados_aceitos = resultado.get("convidados_aceitos") or []
+    meet = resultado.get("meet_link")
     await emitir_de(
         config,
         "tool_result",
-        tool="criar_evento",
+        tool="confirmar_evento",
         ok=True,
         destino="google",
         novo=resultado["novo"],
-        duracao_min=int((fim - inicio).total_seconds() // 60),
+        duracao_min=_duracao_min(proposta),
+        n_convidados_pedidos=len(proposta.convidados or []),
+        n_convidados_aceitos=len(convidados_aceitos),
+        meet_pedido=bool(proposta.com_meet),
+        meet_criado=bool(meet),
     )
     repetido = "" if resultado["novo"] else " (já estava lá — não dupliquei)"
-    link = resultado.get("link")
     return (
-        f"Evento criado no {AGENDA_GOOGLE}: {titulo} — {_intervalo(inicio, fim)}"
-        f"{_sufixo_local(local)}{repetido}" + (f"\nVer: {link}" if link else "")
+        f"Evento criado no {AGENDA_GOOGLE}: {proposta.titulo} — "
+        f"{_intervalo(proposta.inicio_utc, proposta.fim_utc)}"
+        f"{_sufixo_local(proposta.local)}{repetido}"
+        + _relato_de_convidados(proposta, convidados_aceitos)
+        + _relato_do_meet(proposta, meet)
+        + (f"\nVer: {resultado['link']}" if resultado.get("link") else "")
     )
 
 
-async def _criar_na_agenda_nativa(
-    config, member_id: int, titulo: str, inicio: datetime, fim: datetime, local: str | None
-) -> str:
+def _relato_de_convidados(proposta, aceitos: list[str]) -> str:
+    """O que dizer sobre o convite — e só o que o Google confirmou.
+
+    O incidente: "convidei fulano" com o evento nascendo sem attendee nenhum.
+    A resposta do Calendar traz os convidados que ele registrou; o que não
+    estiver lá, não foi convidado."""
+    pedidos = list(proposta.convidados or [])
+    if not pedidos:
+        return ""
+    if not aceitos:
+        return (
+            "\nATENÇÃO: o Google NÃO registrou nenhum convidado. Diga que o "
+            "compromisso está marcado mas o convite NÃO foi enviado — não afirme "
+            "que convidou ninguém."
+        )
+    faltando = [e for e in pedidos if e not in aceitos]
+    if faltando:
+        return (
+            f"\nATENÇÃO: só {len(aceitos)} de {len(pedidos)} convidados entraram. "
+            f"NÃO ficaram: {', '.join(faltando)}. Conte isso ao usuário."
+        )
+    return f"\nConvidados no evento: {', '.join(aceitos)}."
+
+
+def _relato_do_meet(proposta, meet: str | None) -> str:
+    if not proposta.com_meet:
+        return ""
+    if not meet:
+        return (
+            "\nATENÇÃO: o Google NÃO criou o link do Meet. Diga que o compromisso "
+            "está marcado mas SEM videochamada — não invente um link."
+        )
+    return f"\nGoogle Meet: {meet}"
+
+
+async def _gravar_na_agenda_nativa(config, proposta) -> str:
     async with Sessao() as s:
         ev = FamilyEvent(
-            titulo=titulo,
-            inicio_utc=inicio.astimezone(UTC),
-            fim_utc=fim.astimezone(UTC),
-            local=local,
-            criado_por=member_id,
+            titulo=proposta.titulo,
+            inicio_utc=proposta.inicio_utc,
+            fim_utc=proposta.fim_utc,
+            local=proposta.local,
+            criado_por=proposta.member_id,
         )
         s.add(ev)
         await s.commit()
         await s.refresh(ev)
+    await propostas.concluir(proposta.id, link=f"nativo:{ev.id}")
     await emitir_de(
         config,
         "tool_result",
-        tool="criar_evento",
+        tool="confirmar_evento",
         ok=True,
         destino="nativo",
+        novo=True,
         evento_id=ev.id,
-        duracao_min=int((fim - inicio).total_seconds() // 60),
+        duracao_min=_duracao_min(proposta),
+    )
+    aviso = (
+        "\nATENÇÃO: a agenda do Mordomo NÃO manda convite nem cria Meet — diga "
+        "isso ao usuário."
+        if (proposta.convidados or proposta.com_meet)
+        else ""
     )
     return (
-        f"Evento criado na {AGENDA_NATIVA}: {titulo} — "
-        f"{_intervalo(inicio, fim)}{_sufixo_local(local)}"
+        f"Evento criado na {AGENDA_NATIVA}: {proposta.titulo} — "
+        f"{_intervalo(proposta.inicio_utc, proposta.fim_utc)}"
+        f"{_sufixo_local(proposta.local)}{aviso}"
+    )
+
+
+def _duracao_min(proposta) -> int:
+    return int((proposta.fim_utc - proposta.inicio_utc).total_seconds() // 60)
+
+
+@tool
+async def descartar_evento(config: RunnableConfig) -> str:
+    """DESCARTA o compromisso preparado que ainda não foi confirmado.
+
+    Use quando o usuário desistir ou quiser refazer os dados.
+    """
+    member_id = config["configurable"]["member_id"]
+    await emitir_de(config, "tool_called", tool="descartar_evento")
+    quantos = await propostas.descartar(member_id)
+    await emitir_de(
+        config, "tool_result", tool="descartar_evento", ok=True, n_descartados=quantos
+    )
+    if not quantos:
+        return "Não havia nada preparado esperando confirmação — nada foi criado."
+    return (
+        f"Descartei {quantos} compromisso(s) que estavam esperando confirmação. "
+        "NÃO foi criado nada."
     )
 
 
@@ -243,73 +552,219 @@ _FALHA_GENERICA_AO_CRIAR = (
 
 @tool
 async def listar_agenda(dias: int, config: RunnableConfig) -> str:
-    """Lista os compromissos dos próximos N dias (use 1 para hoje, 7 para a semana)."""
-    member_id = config["configurable"]["member_id"]
+    """Lista os compromissos dos próximos N dias (use 1 para hoje, 7 para a semana).
+
+    Só olha para a FRENTE, a partir de agora. Para um dia específico, um dia que
+    já passou ou um intervalo qualquer, use `consultar_agenda`.
+    """
     dias = max(1, min(dias, MAX_DIAS))  # janela curta: protege API e contexto do LLM
     await emitir_de(config, "tool_called", tool="listar_agenda", dias=dias)
-    agora = datetime.now(UTC)
-    ate = agora + timedelta(days=dias)
+    agora = _agora()
+    return await _responder_agenda(
+        config,
+        tool="listar_agenda",
+        inicio=agora,
+        fim=agora + timedelta(days=dias),
+        periodo=f"nos próximos {dias} dia(s)",
+    )
 
+
+@tool
+async def consultar_agenda(
+    inicio: str, fim: str | None, busca: str | None, config: RunnableConfig
+) -> str:
+    """Consulta a agenda num período qualquer — inclusive no PASSADO.
+
+    Args:
+        inicio: começo do período, em português, como o usuário disse
+            ("7 de agosto", "24/08", "ontem", "semana passada", "24/08 às 9h").
+            Sem hora, vale o dia inteiro.
+        fim: fim do período, quando o usuário deu um intervalo ("10 de agosto").
+            Use null para consultar um dia só.
+        busca: palavra a procurar no evento ("reunião", "dentista"). Use null
+            para trazer tudo do período.
+    """
+    await emitir_de(
+        config,
+        "tool_called",
+        tool="consultar_agenda",
+        # Só o FATO de ter havido filtro — o texto buscado é conteúdo de
+        # conversa e não entra em analytics (ADR-005).
+        com_busca=bool(busca),
+        com_fim=bool(fim),
+    )
+    janela = resolver_janela(inicio, fim, agora=_agora())
+    if janela.inicio is None:
+        await emitir_de(
+            config, "tool_result", tool="consultar_agenda", ok=False, motivo=janela.motivo
+        )
+        return _INSTRUCAO_DE_PERIODO[janela.motivo].format(inicio=inicio, fim=fim)
+
+    return await _responder_agenda(
+        config,
+        tool="consultar_agenda",
+        inicio=janela.inicio,
+        fim=janela.fim,
+        periodo=_periodo_por_extenso(janela.inicio, janela.fim),
+        busca=busca,
+        # Janela cortada no teto de dias já é resposta incompleta, antes mesmo
+        # de o Google responder: dizer "não encontrei" aqui seria falso.
+        incompleta=janela.motivo == "janela_reduzida",
+    )
+
+
+_INSTRUCAO_DE_PERIODO = {
+    "inicio_nao_entendido": (
+        "NÃO ENTENDI o período '{inicio}'. Pergunte ao usuário o dia (ou o "
+        "intervalo de dias) exato — não invente."
+    ),
+    "fim_nao_entendido": (
+        "NÃO ENTENDI até quando vai o período ('{fim}'). Pergunte ao usuário o "
+        "último dia — não invente."
+    ),
+    "fim_antes_do_inicio": (
+        "O fim do período ('{fim}') ficou ANTES do começo ('{inicio}'). "
+        "Pergunte ao usuário qual é o período certo."
+    ),
+}
+
+
+def _periodo_por_extenso(inicio: datetime, fim: datetime) -> str:
+    """"no dia sex 07/08" ou "de 01/08 a 10/08" — a janela devolvida em texto.
+
+    Sai daqui, e não do LLM: foi o modelo calculando dia da semana de cabeça que
+    escreveu "segunda, 24/08" numa conversa real."""
+    fuso = ZoneInfo(settings.tz_familia)
+    primeiro = inicio.astimezone(fuso)
+    # O fim é EXCLUSIVO: o último dia coberto é o instante anterior a ele.
+    ultimo = (fim - timedelta(seconds=1)).astimezone(fuso)
+    if primeiro.date() == ultimo.date():
+        return f"no dia {DIAS_DA_SEMANA[primeiro.weekday()]} {primeiro:%d/%m}"
+    return f"de {primeiro:%d/%m} a {ultimo:%d/%m}"
+
+
+async def _responder_agenda(
+    config,
+    *,
+    tool: str,
+    inicio: datetime,
+    fim: datetime,
+    periodo: str,
+    busca: str | None = None,
+    incompleta: bool = False,
+) -> str:
+    """O caminho comum de `listar_agenda` e `consultar_agenda`: ler a janela do
+    destino certo, emitir o funil e montar o texto — inclusive a confissão de
+    que a leitura ficou incompleta."""
+    member_id = config["configurable"]["member_id"]
     if await _conexao_google(member_id) is None:
-        return await _listar_agenda_nativa(config, agora, ate, dias)
-    return await _listar_do_google(config, member_id, agora, ate, dias)
+        return await _listar_agenda_nativa(config, tool, inicio, fim, periodo, busca, incompleta)
+    return await _listar_do_google(
+        config, tool, member_id, inicio, fim, periodo, busca, incompleta
+    )
 
 
-async def _listar_do_google(config, member_id: int, agora, ate, dias: int) -> str:
+async def _listar_do_google(
+    config, tool: str, member_id: int, inicio, fim, periodo, busca, incompleta
+) -> str:
     resultado = await google.listar_eventos_da_agenda(
-        member_id, inicio=agora, fim=ate, maximo=MAX_EVENTOS
+        member_id, inicio=inicio, fim=fim, texto=busca, teto=MAX_EVENTOS
     )
     if not resultado["ok"]:
         await emitir_de(
             config,
             "tool_result",
-            tool="listar_agenda",
+            tool=tool,
             ok=False,
             destino="google",
             motivo=resultado["motivo"],
         )
         return _FALHA_AO_LISTAR.get(resultado["motivo"], _FALHA_GENERICA_AO_LISTAR)
-    eventos = resultado["eventos"]
+    eventos = sorted(resultado["eventos"], key=lambda e: e["inicio"])
+    incompleta = incompleta or resultado["truncado"]
     await emitir_de(
-        config, "tool_result", tool="listar_agenda", ok=True, destino="google", n=len(eventos)
+        config,
+        "tool_result",
+        tool=tool,
+        ok=True,
+        destino="google",
+        n=len(eventos),
+        incompleta=incompleta,
     )
+    return _texto_da_agenda(AGENDA_GOOGLE, eventos, periodo, busca, incompleta)
+
+
+async def _listar_agenda_nativa(config, tool: str, inicio, fim, periodo, busca, incompleta) -> str:
+    # Sem member_id no filtro de propósito: a agenda do Mordomo é
+    # COMPARTILHADA (ADR-003), e quem pediu já entra no evento via emitir_de.
+    filtros = [FamilyEvent.inicio_utc >= inicio, FamilyEvent.inicio_utc < fim]
+    if busca:
+        # `escape` explícito: sem ele um "%" digitado pelo usuário viraria
+        # curinga e traria a agenda inteira (a mesma trava do cofre).
+        alvo = busca.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        filtros.append(FamilyEvent.titulo.ilike(f"%{alvo}%", escape="\\"))
+    async with Sessao() as s:
+        res = await s.execute(
+            select(FamilyEvent).where(*filtros).order_by(FamilyEvent.inicio_utc).limit(MAX_EVENTOS)
+        )
+        linhas = list(res.scalars())
+    eventos = [
+        {
+            "titulo": e.titulo,
+            "inicio": e.inicio_utc,
+            "fim": e.fim_utc,
+            "dia_inteiro": False,
+            "local": e.local,
+        }
+        for e in linhas
+    ]
+    truncada = incompleta or len(eventos) >= MAX_EVENTOS
+    await emitir_de(
+        config,
+        "tool_result",
+        tool=tool,
+        ok=True,
+        destino="nativo",
+        n=len(eventos),
+        incompleta=truncada,
+    )
+    return _texto_da_agenda(AGENDA_NATIVA, eventos, periodo, busca, truncada)
+
+
+AVISO_INCOMPLETO = (
+    "ATENÇÃO: não consegui ver a janela inteira (é longa demais ou tem eventos "
+    "demais). Diga ao usuário que o que veio pode não ser tudo e ofereça olhar "
+    "um período menor. NÃO afirme que não existe nada nem que a agenda está livre."
+)
+
+
+def _texto_da_agenda(
+    onde: str, eventos: list[dict], periodo: str, busca: str | None, incompleta: bool
+) -> str:
+    """O texto que volta ao subagente. `incompleta` muda o SENTIDO da lista
+    vazia: sem ela é "não há"; com ela é "não sei" — e as duas frases não podem
+    se parecer."""
     if not eventos:
-        return f"Nada no seu {AGENDA_GOOGLE} nos próximos {dias} dia(s)."
-    linhas = "\n".join(
-        f"• {_linha_do_google(e)}" for e in sorted(eventos, key=lambda e: e["inicio"])
-    )
-    return f"No seu {AGENDA_GOOGLE}:\n{linhas}"
+        if incompleta:
+            return AVISO_INCOMPLETO
+        procurado = f' com "{busca}"' if busca else ""
+        return f"Não encontrei nada{procurado} {periodo} na {onde}."
+
+    mostrados = eventos[:MAX_LINHAS]
+    linhas = "\n".join(f"• {_linha_de_evento(e)}" for e in mostrados)
+    resto = len(eventos) - len(mostrados)
+    sobra = f"\n(e mais {resto} — peça um período menor para ver todos)" if resto else ""
+    aviso = f"\n{AVISO_INCOMPLETO}" if incompleta else ""
+    return f"Na {onde}, {periodo}:\n{linhas}{sobra}{aviso}"
 
 
-def _linha_do_google(evento: dict) -> str:
+def _linha_de_evento(evento: dict) -> str:
     quando = (
         f"{_fmt(evento['inicio'])} (dia inteiro)"
         if evento["dia_inteiro"]
         else _intervalo(evento["inicio"], evento["fim"])
     )
     return f"{quando} — {evento['titulo']}{_sufixo_local(evento['local'])}"
-
-
-async def _listar_agenda_nativa(config, agora, ate, dias: int) -> str:
-    # Sem member_id no filtro de propósito: a agenda do Mordomo é
-    # COMPARTILHADA (ADR-003), e quem pediu já entra no evento via emitir_de.
-    async with Sessao() as s:
-        res = await s.execute(
-            select(FamilyEvent)
-            .where(FamilyEvent.inicio_utc >= agora, FamilyEvent.inicio_utc <= ate)
-            .order_by(FamilyEvent.inicio_utc)
-        )
-        eventos = list(res.scalars())
-    await emitir_de(
-        config, "tool_result", tool="listar_agenda", ok=True, destino="nativo", n=len(eventos)
-    )
-    if not eventos:
-        return f"Nada na {AGENDA_NATIVA} nos próximos {dias} dia(s)."
-    linhas = "\n".join(
-        f"• {_intervalo(e.inicio_utc, e.fim_utc)} — {e.titulo}{_sufixo_local(e.local)}"
-        for e in eventos
-    )
-    return f"Na {AGENDA_NATIVA}:\n{linhas}"
 
 
 _FALHA_AO_LISTAR = {
@@ -337,4 +792,10 @@ _FALHA_GENERICA_AO_LISTAR = (
 
 # Tool nova que GRAVA algo? Adicione em core/efeitos.py::TOOLS_MUTANTES,
 # senão o retry do pipeline pode executá-la duas vezes.
-TOOLS_AGENDA = [criar_evento, listar_agenda]
+TOOLS_AGENDA = [
+    preparar_evento,
+    confirmar_evento,
+    descartar_evento,
+    listar_agenda,
+    consultar_agenda,
+]
