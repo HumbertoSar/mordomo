@@ -31,6 +31,13 @@
     { "expressao": "amanhã de manhã", "esperado": null, "tipo": "ambigua", "nota": "que horas é 'de manhã'? pedir esclarecimento é o correto" },
     { "expressao": "sábado de manhã", "esperado": null, "tipo": "ambigua" },
     { "expressao": "depois do almoço", "esperado": null, "tipo": "ambigua" },
-    { "expressao": "dia das mães", "esperado": null, "tipo": "ambigua", "nota": "feriados móveis: fase 2 (tabela de datas BR?)" }
+    { "expressao": "dia das mães", "esperado": null, "tipo": "ambigua", "nota": "feriados móveis: fase 2 (tabela de datas BR?)" },
+    { "expressao": "amanhã das 18h", "esperado": "2026-08-11T18:00", "tipo": "comum", "nota": "canário real 18/08/2026: o LLM fatiou 'das 18h às 18h30' e mandou só o começo em `quando` — a preposição solta devolvia None" },
+    { "expressao": "amanhã das 10h", "esperado": "2026-08-11T10:00", "tipo": "comum" },
+    { "expressao": "amanhã começando 20h30", "esperado": "2026-08-11T20:30", "tipo": "comum", "nota": "mesmo canário, outra abertura de intervalo" },
+    { "expressao": "amanhã a partir das 10h", "esperado": "2026-08-11T10:00", "tipo": "comum" },
+    { "expressao": "amanhã das 18h às 18h30", "esperado": "2026-08-11T18:00", "tipo": "dificil", "nota": "a frase INTEIRA cabe no contrato desta função só até o começo; o fim é contrato de resolver_intervalo, coberto em tests/test_datas.py e tests/test_agenda_confirmacao.py" },
+    { "expressao": "amanhã entre 18h e 18h30", "esperado": "2026-08-11T18:00", "tipo": "dificil", "nota": "idem — aqui só se mede o começo" },
+    { "expressao": "amanhã de 18h a 18h30", "esperado": "2026-08-11T18:00", "tipo": "dificil", "nota": "idem" }
   ]
 }

@@ -150,6 +150,24 @@ async def concluir(
         await s.commit()
 
 
+async def pendentes(member_id: int, agora: datetime | None = None) -> list[EventProposal]:
+    """As propostas do membro que ainda esperam um sim (nem usadas, nem vencidas).
+
+    Quem pergunta é o atalho de desistência: "não" só pode virar descarte se
+    houver algo pendente — do contrário a resposta afirmaria ter descartado o
+    que nunca existiu."""
+    agora = agora or datetime.now(UTC)
+    async with Sessao() as s:
+        res = await s.execute(
+            select(EventProposal).where(
+                EventProposal.member_id == member_id,
+                EventProposal.usado_em.is_(None),
+                EventProposal.expira_em > agora,
+            )
+        )
+        return list(res.scalars())
+
+
 async def descartar(member_id: int, agora: datetime | None = None) -> int:
     """Apaga os pendentes do membro. Devolve quantos foram descartados.
 

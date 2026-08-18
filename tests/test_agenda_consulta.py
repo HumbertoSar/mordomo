@@ -414,3 +414,33 @@ async def test_analytics_da_consulta_nao_leva_titulo_nem_texto_buscado(monkeypat
 
     for proibido in ("Xiao Long Mo", "Av. Paulista 1000", "access-valido"):
         assert proibido not in bruto
+
+
+# ── "procure o evento X de amanhã" (canário real de 18/08/2026) ──────────
+# O evento tinha acabado de ser criado e estava no histórico da conversa; a
+# resposta saiu de lá, sem ninguém consultar agenda nenhuma. Aqui a prova é a
+# CHAMADA: o Google recebe a janela do dia inteiro de amanhã com o texto
+# buscado, e o que volta ao usuário é o que o Google respondeu.
+
+
+async def test_procurar_evento_de_amanha_consulta_o_google_de_verdade(monkeypatch):
+    corpo = {"items": [{
+        "summary": "Reunião com a Ana",
+        "start": {"dateTime": "2026-08-18T21:00:00Z"},
+        "end": {"dateTime": "2026-08-18T21:30:00Z"},
+    }]}
+    with google_configurado():
+        membro = await membro_conectado("ConsultaProcurarAmanha")
+        handler = gravador([lambda r: httpx.Response(200, json=corpo)])
+        injetar_google(monkeypatch, handler)
+        _congelar(monkeypatch)
+        resposta = await _consultar(
+            monkeypatch, membro, "t-cons-amanha", inicio="amanhã", busca="Reunião"
+        )
+
+    assert handler.chamadas, "a consulta TEM que ir ao Google — não à memória da conversa"
+    inicio, fim = _janela_pedida(handler.chamadas[0])
+    assert inicio == datetime(2026, 8, 18, 0, 0, tzinfo=SP)
+    assert fim == datetime(2026, 8, 19, 0, 0, tzinfo=SP)
+    assert _consulta(handler.chamadas[0])["q"] == ["Reunião"]
+    assert "Reunião com a Ana" in resposta and "ter 18/08 às 18:00" in resposta

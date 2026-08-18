@@ -28,7 +28,7 @@ from ..db.models import FamilyEvent
 from ..db.session import Sessao
 from ..integracoes import google
 from ._comum import DIAS_DA_SEMANA, fmt_data, resolver_ou_instruir
-from .datas import resolver_data
+from .datas import resolver_data, resolver_intervalo
 from .periodos import resolver_janela
 
 _fmt = partial(fmt_data, dia_semana=True)  # agenda mostra o dia da semana
@@ -148,20 +148,37 @@ async def preparar_evento(
         n_convidados=len(convidados or []),
         com_meet=bool(com_meet),
     )
-    inicio, instrucao = await resolver_ou_instruir(quando, config, "preparar_evento")
-    if instrucao:
-        return instrucao
+    # Quando o fim está dentro de `quando`, valide o intervalo antes do resolvedor
+    # genérico. Assim "das 20h às 19h" recebe a orientação sobre o TÉRMINO, sem
+    # transformar o começo num instante válido para outros consumidores.
+    intervalo = resolver_intervalo(quando) if not ate else None
+    if intervalo is not None and intervalo.motivo in _INSTRUCAO_DE_TERMINO:
+        await emitir_de(
+            config,
+            "tool_result",
+            tool="preparar_evento",
+            ok=False,
+            motivo=intervalo.motivo,
+        )
+        return _INSTRUCAO_DE_TERMINO[intervalo.motivo].format(ate=quando)
 
-    if ate:
-        fim, motivo = _resolver_fim(ate, inicio)
-        if fim is None:
-            await emitir_de(
-                config, "tool_result", tool="preparar_evento", ok=False, motivo=motivo
-            )
-            return _INSTRUCAO_DE_TERMINO[motivo].format(ate=ate)
+    if intervalo is not None and intervalo.motivo == "ok":
+        inicio, fim = intervalo.inicio, intervalo.fim
     else:
-        fim = inicio + timedelta(minutes=DURACAO_PADRAO_MINUTOS)
+        inicio, instrucao = await resolver_ou_instruir(quando, config, "preparar_evento")
+        if instrucao:
+            return instrucao
+        assert inicio is not None  # sucesso do contrato de resolver_ou_instruir
+        fim, motivo = _resolver_fim(ate, inicio) if ate else (None, "sem_termino")
+        if fim is None:
+            if motivo in _INSTRUCAO_DE_TERMINO:
+                await emitir_de(
+                    config, "tool_result", tool="preparar_evento", ok=False, motivo=motivo
+                )
+                return _INSTRUCAO_DE_TERMINO[motivo].format(ate=ate)
+            fim = inicio + timedelta(minutes=DURACAO_PADRAO_MINUTOS)
 
+    assert inicio is not None and fim is not None
     convidados = [c.strip() for c in (convidados or []) if c and c.strip()]
     if invalidos := [c for c in convidados if not _EMAIL.fullmatch(c)]:
         await emitir_de(
@@ -517,6 +534,68 @@ async def descartar_evento(config: RunnableConfig) -> str:
     return (
         f"Descartei {quantos} compromisso(s) que estavam esperando confirmação. "
         "NÃO foi criado nada."
+    )
+
+
+# ── desistência: executar antes de afirmar ───────────────────────────────
+# Canário real de 18/08/2026: com um compromisso preparado, o usuário disse
+# "não" e o modelo respondeu "descartado" SEM chamar `descartar_evento`. A
+# proposta ficou de pé, e um "sim" posterior — sobre outro assunto — a
+# encontraria esperando.
+#
+# A trava tem DUAS condições, e é a conjunção que a mantém estreita:
+#   1. existe proposta pendente deste membro (fato do banco, não do texto);
+#   2. a fala é SÓ desistência — todas as palavras saem de um vocabulário
+#      fechado. "não precisa avisar o Davi" tem pedido dentro e não passa.
+_DESISTENCIA = {
+    "não", "nao", "desisti", "desisto", "descarta", "descarte", "descartar",
+    "esquece", "esqueça", "esqueca", "cancela", "cancele", "deixa",
+}
+_ACESSORIAS = {
+    "marca", "marque", "marcar", "criar", "cria", "crie", "precisa", "pra", "para",
+    "lá", "la", "isso", "agora", "melhor", "nem", "mais", "obrigado", "obrigada",
+    "por", "favor", "o", "a", "os", "as", "esse", "essa", "compromisso", "evento",
+    "aí", "ai", "todos", "todas", "ambos", "ambas", "dois", "duas",
+}
+_MAX_PALAVRAS_DE_DESISTENCIA = 5
+
+
+def _e_desistencia(texto: str) -> bool:
+    palavras = re.findall(r"[\wÀ-ÿ]+", texto.lower())
+    if not palavras or len(palavras) > _MAX_PALAVRAS_DE_DESISTENCIA:
+        return False
+    return bool(_DESISTENCIA & set(palavras)) and all(
+        p in _DESISTENCIA or p in _ACESSORIAS for p in palavras
+    )
+
+
+async def descarte_deliberado(texto: str, config) -> str | None:
+    """Desistência inequívoca com proposta pendente → DESCARTA e devolve o que
+    dizer. None significa "isto é conversa" — quem responde é o LLM."""
+    if not _e_desistencia(texto):
+        return None
+    esperando = await propostas.pendentes(config["configurable"]["member_id"])
+    if not esperando:
+        return None
+    palavras = set(re.findall(r"[\wÀ-ÿ]+", texto.lower()))
+    pediu_todos = bool(palavras & {"todos", "todas"}) or (
+        len(esperando) == 2
+        and bool(palavras & {"ambos", "ambas", "dois", "duas"})
+    )
+    if len(esperando) > 1 and not pediu_todos:
+        return (
+            f"Há {len(esperando)} compromissos esperando confirmação. "
+            "Qual deles você quer descartar? Se quiser apagar todos, diga “descarte todos”."
+        )
+    # Quem apaga é a tool: é ela que emite o funil (`tool_called`/`tool_result`)
+    # e é a chamada dela que prova o efeito.
+    await descartar_evento.ainvoke({}, config)
+    if len(esperando) == 1:
+        return "Descartei o compromisso que estava esperando confirmação — não marquei nada."
+    # O plural só chega aqui quando o usuário pediu todos explicitamente.
+    return (
+        f"Descartei os {len(esperando)} compromissos que estavam esperando "
+        "confirmação — não marquei nada."
     )
 
 
