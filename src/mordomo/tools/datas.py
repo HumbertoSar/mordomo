@@ -8,6 +8,7 @@ vez de chutar (chutar data errada é o pior erro possível num mordomo)."""
 
 import re
 from datetime import datetime
+from typing import NamedTuple
 from zoneinfo import ZoneInfo
 
 import dateparser
@@ -89,7 +90,77 @@ def _normalizar(expressao: str) -> str:
     # tocar em duração ("em 2 horas" tem que continuar sendo daqui a 2h).
     e = re.sub(r"\b(\d{1,2}:\d{2})\s+horas?\b", r"\1", e)           # 14:00 horas → 14:00
     e = _converter_periodo(e)                          # 8:00 da manhã → 08:00
+    e = _ABERTURA_DE_INTERVALO.sub("às ", e)           # das 18:00 → às 18:00
     return re.sub(r"\s+", " ", e).strip()              # remover "que vem" deixa espaço duplo
+
+
+# ── intervalos ("das 18h às 18h30") ──────────────────────────────────────
+# Canário real de 18/08/2026: o LLM fatiou a frase e mandou `quando="amanhã das
+# 18h"`. O dateparser devolve None para a preposição solta, e o Mordomo pedia a
+# hora que o usuário JÁ tinha dito.
+#
+# A abertura só é trocada quando vem COLADA a uma hora já normalizada (HH:MM) —
+# é o que impede "5 de outubro" e "do mês 8" de virarem horário.
+_ABERTURA_DE_INTERVALO = re.compile(
+    r"\b(?:a\s+partir\s+d[aeo]s?|d[aeo]s?|entre|come[çc]ando(?:\s+[àa]s)?"
+    r"|iniciando(?:\s+[àa]s)?)\s+(?=\d{1,2}:\d{2})"
+)
+
+# O que pode aparecer ENTRE as duas horas de um intervalo. Lista fechada de
+# propósito: qualquer outra palavra ("amanhã às 9h e depois de amanhã às 10h")
+# significa que não é um intervalo, e aí não inventamos um.
+_CONECTORES_DE_INTERVALO = {
+    "às", "as", "a", "até", "ate", "e", "-", "–", "—", ",", "terminando", "termina",
+}
+
+
+class Intervalo(NamedTuple):
+    """(início, fim, motivo) de uma frase com começo E fim na mesma expressão.
+
+    Motivos: ok · sem_intervalo (a frase não descreve um intervalo — o normal) ·
+    inicio_nao_entendido · termino_nao_entendido · termino_antes_do_inicio.
+    Em `termino_*` o `inicio` VOLTA preenchido: o começo foi entendido, e quem
+    chama precisa disso para perguntar só o que falta."""
+
+    inicio: datetime | None
+    fim: datetime | None
+    motivo: str
+
+
+def _dividir_intervalo(normalizada: str) -> tuple[str, str] | None:
+    """('amanhã às 18:00', '18:30') quando o texto tem DUAS horas ligadas por um
+    conector — None em qualquer outro caso."""
+    horas = list(_RGX_HORA.finditer(normalizada))
+    # Mais de duas horas não é um intervalo simples. Usar só as duas primeiras
+    # descartaria informação do usuário em silêncio.
+    if len(horas) != 2:
+        return None
+    entre = normalizada[horas[0].end() : horas[1].start()].split()
+    if not all(t in _CONECTORES_DE_INTERVALO for t in entre):
+        return None
+    return normalizada[: horas[0].end()], horas[1].group(0)
+
+
+def resolver_intervalo(expressao: str, base: datetime | None = None) -> Intervalo:
+    """'amanhã das 18h às 18h30' → (11/08 18:00, 11/08 18:30, "ok").
+
+    O término é sempre lido NO DIA DO INÍCIO: um fim que caísse noutro dia seria
+    o parser consertando calado um horário invertido ("das 20h às 19h") e
+    criando um compromisso de 23 horas."""
+    partes = _dividir_intervalo(_normalizar(expressao))
+    if partes is None:
+        return Intervalo(None, None, "sem_intervalo")
+    texto_inicio, texto_fim = partes
+    inicio = _resolver_simples(texto_inicio, base)
+    if inicio is None:
+        return Intervalo(None, None, "inicio_nao_entendido")
+    fim = _resolver_simples(texto_fim, inicio)
+    if fim is None:
+        return Intervalo(inicio, None, "termino_nao_entendido")
+    tz = ZoneInfo(settings.tz_familia)
+    if fim <= inicio or fim.astimezone(tz).date() != inicio.astimezone(tz).date():
+        return Intervalo(inicio, None, "termino_antes_do_inicio")
+    return Intervalo(inicio, fim, "ok")
 
 
 def _parse(
@@ -144,7 +215,26 @@ def resolver_instante(
 
 
 def resolver_data(expressao: str, base: datetime | None = None) -> datetime | None:
-    """Expressão pt-BR → datetime com timezone da família, ou None."""
+    """Expressão pt-BR → datetime com timezone da família, ou None.
+
+    Quando a frase traz o intervalo inteiro ("amanhã das 18h às 18h30"), o que
+    volta é o COMEÇO — quem precisa do fim chama `resolver_intervalo`.
+
+    O intervalo é testado ANTES: o dateparser, diante de "amanhã das 18h às
+    18h30", devolve amanhã na hora do RELÓGIO (ignora as duas horas ditas) — um
+    horário errado em silêncio, que é o pior desfecho possível."""
+    intervalo = resolver_intervalo(expressao, base)
+    if intervalo.motivo == "ok":
+        return intervalo.inicio
+    if intervalo.motivo != "sem_intervalo":
+        # A frase declarou um intervalo, mas ele é inválido/incompleto. Não
+        # ignore o fim para transformar o começo num instante aparentemente
+        # válido para outros consumidores (lembretes, por exemplo).
+        return None
+    return _resolver_simples(expressao, base)
+
+
+def _resolver_simples(expressao: str, base: datetime | None) -> datetime | None:
     dt, normalizada = _parse(expressao, base, "future")
     if dt is None:
         return None

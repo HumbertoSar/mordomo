@@ -166,3 +166,60 @@ async def test_eventos_do_turno_carregam_contexto(monkeypatch):
     assert "orchestrator_decision" in tipos
     assert "llm_usage" in tipos
     assert all(e.session_id and e.member_id for e in eventos)
+
+
+# ── consulta de agenda não se responde de cabeça (canário 18/08/2026) ────
+# "Procure o evento X de amanhã": o compromisso tinha acabado de ser criado e
+# estava no histórico, então o supervisor respondeu de lá — sem ninguém abrir
+# agenda nenhuma. Pedido explícito de procurar/conferir compromisso vai para o
+# subagente, que consulta de verdade.
+
+
+async def test_pedido_de_procurar_evento_vai_para_a_agenda(monkeypatch):
+    monkeypatch.setattr(
+        "mordomo.agents.supervisor.chat_model",
+        # O modelo decidiu responder de cabeça — é exatamente o canário.
+        lambda *a, **k: _ModeloFalso(
+            lambda _: Decisao(destino="responder", resposta="Está marcado às 18h!")
+        ),
+    )
+    monkeypatch.setattr(
+        "mordomo.agents.agenda.no_agenda.agente", _AgenteFalso("Na Google Agenda, ter 18/08…")
+    )
+    grafo = build_graph()
+    resultado = await grafo.ainvoke(
+        {"messages": [HumanMessage("Procure o evento Reunião com a Ana de amanhã")]},
+        _cfg(turn_id="t-grounding"),
+    )
+    assert resultado["messages"][-1].content == "Na Google Agenda, ter 18/08…"
+
+
+async def test_conferir_reuniao_sem_palavra_evento_tambem_vai_para_agenda(monkeypatch):
+    """A proteção também cobre "reunião" sem depender da palavra "evento"."""
+    monkeypatch.setattr(
+        "mordomo.agents.supervisor.chat_model",
+        lambda *a, **k: _ModeloFalso(
+            lambda _: Decisao(destino="responder", resposta="Sim, está marcada.")
+        ),
+    )
+    monkeypatch.setattr(
+        "mordomo.agents.agenda.no_agenda.agente", _AgenteFalso("Consultei a agenda.")
+    )
+    resultado = await build_graph().ainvoke(
+        {"messages": [HumanMessage("Confere a reunião de amanhã")]},
+        _cfg(turn_id="t-grounding-reuniao"),
+    )
+    assert resultado["messages"][-1].content == "Consultei a agenda."
+
+
+async def test_conversa_comum_continua_sendo_respondida_pelo_supervisor(monkeypatch):
+    """A trava é estreita: só pega pedido de PROCURAR compromisso."""
+    monkeypatch.setattr(
+        "mordomo.agents.supervisor.chat_model", lambda *a, **k: _ModeloFalso(_roteador)
+    )
+    grafo = build_graph()
+    for frase in ("bom dia!", "procura um filme bom pra hoje", "obrigado pelo evento de ontem"):
+        resultado = await grafo.ainvoke(
+            {"messages": [HumanMessage(frase)]}, _cfg(turn_id="t-grounding-neg")
+        )
+        assert resultado["messages"][-1].content == "Às ordens!", frase

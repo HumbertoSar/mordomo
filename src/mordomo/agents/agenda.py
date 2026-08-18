@@ -4,7 +4,9 @@ Quem tem Google Agenda conectado tem o evento criado LÁ; quem não tem, na
 agenda compartilhada do Mordomo. Quem decide é a tool (ADR-010) — o prompt não
 escolhe destino, só repassa fielmente o que a tool respondeu."""
 
-from ..tools.agenda import TOOLS_AGENDA
+from langchain_core.messages import AIMessage
+
+from ..tools.agenda import TOOLS_AGENDA, descarte_deliberado
 from ._base import NoSubagente
 
 PROMPT_AGENDA = """Você é o especialista em AGENDA do Mordomo da Família.
@@ -50,4 +52,20 @@ Regras:
 - Respostas curtas, tom de mordomo simpático, formato WhatsApp.
 """
 
-no_agenda = NoSubagente("agenda", TOOLS_AGENDA, PROMPT_AGENDA)
+class _NoAgenda(NoSubagente):
+    """O nó da agenda com UM atalho determinístico antes do LLM: desistir de um
+    compromisso preparado é efeito, não redação.
+
+    Canário de 18/08/2026 — o modelo respondeu "descartado" sem chamar
+    `descartar_evento`, e a proposta continuou esperando confirmação. Onde a
+    resposta afirma um efeito, o efeito acontece primeiro."""
+
+    async def __call__(self, state, config) -> dict:
+        ultima = state["messages"][-1]
+        fala = ultima.content if getattr(ultima, "type", None) == "human" else None
+        if isinstance(fala, str) and (resposta := await descarte_deliberado(fala, config)):
+            return {"messages": [AIMessage(resposta)]}
+        return await super().__call__(state, config)
+
+
+no_agenda = _NoAgenda("agenda", TOOLS_AGENDA, PROMPT_AGENDA)

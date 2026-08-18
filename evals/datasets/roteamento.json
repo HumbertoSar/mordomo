@@ -58,6 +58,21 @@
         { "papel": "usuario", "texto": "o que temos no sábado?" },
         { "papel": "mordomo", "texto": "Sábado: futebol do João às 09:00 e jantar com os Silva às 20:00." }
       ]
+    },
+    {
+      "frase": "Procure o evento Reunião com a Ana de amanhã",
+      "esperado": "agenda",
+      "tipo": "multiturno",
+      "nota": "canário real 18/08/2026: o evento acabara de ser criado e estava no histórico — o supervisor respondeu DE LÁ, sem consultar agenda nenhuma",
+      "historico": [
+        { "papel": "usuario", "texto": "marca Reunião com a Ana amanhã das 18h às 18h30" },
+        { "papel": "mordomo", "texto": "Pronto! Reunião com a Ana criada no Google Agenda, ter 18/08 às 18:00 até 18:30." }
+      ]
+    },
+    {
+      "frase": "confere se tenho algum compromisso terça de manhã",
+      "esperado": "agenda",
+      "nota": "conferir compromisso é consulta à agenda, nunca resposta de cabeça"
     }
   ]
 }

@@ -16,8 +16,10 @@ nº 7)."""
 
 import json
 from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import httpx
+from langchain_core.messages import AIMessage, HumanMessage
 from sqlalchemy import select
 
 from apoio import (
@@ -379,3 +381,157 @@ async def test_analytics_da_confirmacao_nao_leva_titulo_email_link_nem_token(mon
     bruto = await _payloads("t-cf-14") + await _payloads("t-cf-14b")
     for proibido in (TITULO, CONVIDADO, "Av. Paulista 1000", LINK, "access-valido"):
         assert proibido not in bruto
+
+
+# ── intervalos naturais (canário real de 18/08/2026) ─────────────────────
+# O LLM fatiou "amanhã das 18h às 18h30" em quando="amanhã das 18h" +
+# ate="18h30" e a preparação morria em "não entendi quando começa".
+
+
+async def _proposta_unica(membro) -> EventProposal:
+    todas = await _propostas(membro.id)
+    assert len(todas) == 1
+    return todas[0]
+
+
+def _hora_local(quando: datetime) -> tuple[int, int]:
+    local = quando.replace(tzinfo=UTC).astimezone(ZoneInfo("America/Sao_Paulo"))
+    return local.hour, local.minute
+
+
+async def test_fragmento_de_intervalo_prepara_com_comeco_e_fim(monkeypatch):
+    with google_configurado():
+        membro = await membro_conectado("ConfirmaFragmentoIntervalo")
+        injetar_google(monkeypatch, gravador())
+        resposta = await _preparar(
+            membro, "t-cf-frag", quando="amanhã das 18h", ate="18h30"
+        )
+
+    proposta = await _proposta_unica(membro)
+    assert _hora_local(proposta.inicio_utc) == (18, 0)
+    assert _hora_local(proposta.fim_utc) == (18, 30)
+    assert "18:00" in resposta and "18:30" in resposta
+
+
+async def test_frase_inteira_de_intervalo_dispensa_o_ate(monkeypatch):
+    """Quando o LLM NÃO fatia, o começo e o fim têm que sair da mesma frase —
+    não da duração padrão de 1 hora."""
+    with google_configurado():
+        membro = await membro_conectado("ConfirmaFraseIntervalo")
+        injetar_google(monkeypatch, gravador())
+        await _preparar(membro, "t-cf-frase", quando="amanhã das 10h às 10h30", ate=None)
+
+    proposta = await _proposta_unica(membro)
+    assert _hora_local(proposta.inicio_utc) == (10, 0)
+    assert _hora_local(proposta.fim_utc) == (10, 30)
+
+
+async def test_intervalo_invertido_pergunta_em_vez_de_marcar(monkeypatch):
+    """"das 20h às 19h" não vira compromisso de 23 horas nem de 1 hora calada."""
+    with google_configurado():
+        membro = await membro_conectado("ConfirmaIntervaloInvertido")
+        injetar_google(monkeypatch, gravador())
+        resposta = await _preparar(
+            membro, "t-cf-inv", quando="amanhã das 20h às 19h", ate=None
+        )
+
+    assert await _propostas(membro.id) == []
+    assert "termina" in resposta.lower()
+
+
+# ── desistência: a tool tem que RODAR antes de a resposta afirmar ────────
+# Canário real de 18/08/2026: o usuário disse "não" com um compromisso
+# preparado, o Mordomo respondeu "descartado" e a proposta continuou de pé —
+# o "sim" seguinte, sobre outro assunto, encontraria ela esperando.
+
+
+class _AgenteMudo:
+    """Substitui o subagente ReAct. Se for chamado, o teste vê `chamado=True` —
+    é assim que se prova que o descarte NÃO dependeu do LLM."""
+
+    def __init__(self, resposta: str = "descartado!"):
+        self.chamado = False
+        self._resposta = resposta
+
+    async def ainvoke(self, entrada, config=None):
+        self.chamado = True
+        return {"messages": [*entrada["messages"], AIMessage(self._resposta)]}
+
+
+async def _falar_com_agenda(membro, turn: str, texto: str, agente: _AgenteMudo):
+    from mordomo.agents.agenda import no_agenda
+
+    anterior, no_agenda.agente = no_agenda.agente, agente
+    try:
+        estado = {"messages": [HumanMessage(texto)]}
+        return await no_agenda(estado, cfg_de(membro, turn))
+    finally:
+        no_agenda.agente = anterior
+
+
+async def test_desistencia_executa_o_descarte_sem_passar_pelo_llm(monkeypatch):
+    with google_configurado():
+        membro = await membro_conectado("AgendaDesiste")
+        injetar_google(monkeypatch, gravador())
+        await _preparar(membro, "t-cf-des1")
+        agente = _AgenteMudo()
+        saida = await _falar_com_agenda(membro, "t-cf-des2", "não, desisti", agente)
+
+    assert await _propostas(membro.id) == [], "a proposta tem que sumir de verdade"
+    assert agente.chamado is False
+    assert "descartei" in saida["messages"][-1].content.lower()
+
+
+async def test_desistencia_sem_nada_pendente_nao_afirma_descarte(monkeypatch):
+    """Sem proposta esperando, "não" é conversa — quem responde é o LLM."""
+    with google_configurado():
+        membro = await membro_conectado("AgendaDesisteVazio")
+        injetar_google(monkeypatch, gravador())
+        agente = _AgenteMudo("Não há nada preparado.")
+        saida = await _falar_com_agenda(membro, "t-cf-des3", "não", agente)
+
+    assert agente.chamado is True
+    assert saida["messages"][-1].content == "Não há nada preparado."
+
+
+async def test_frase_com_pedido_novo_nao_vira_descarte(monkeypatch):
+    """"não precisa avisar o Davi" tem pedido dentro — quem lê é o LLM, e a
+    proposta continua de pé até alguém decidir de verdade."""
+    with google_configurado():
+        membro = await membro_conectado("AgendaNegacaoLegitima")
+        injetar_google(monkeypatch, gravador())
+        await _preparar(membro, "t-cf-des4")
+        agente = _AgenteMudo("Certo.")
+        await _falar_com_agenda(membro, "t-cf-des5", "não precisa avisar o Davi", agente)
+
+    assert agente.chamado is True
+    assert len(await _propostas(membro.id)) == 1
+
+
+async def test_descarte_singular_com_duas_propostas_pede_qual_sem_apagar(monkeypatch):
+    """"Descarte" no singular é ambíguo quando há duas propostas: informar a
+    quantidade depois de apagar não desfaz o efeito destrutivo."""
+    with google_configurado():
+        membro = await membro_conectado("AgendaDuasPropostas")
+        injetar_google(monkeypatch, gravador())
+        await _preparar(membro, "t-cf-des6")
+        await _preparar(membro, "t-cf-des7", quando=_amanha(15))
+        saida = await _falar_com_agenda(membro, "t-cf-des8", "descarte", _AgenteMudo())
+
+    assert len(await _propostas(membro.id)) == 2
+    assert "2" in saida["messages"][-1].content
+    assert "qual" in saida["messages"][-1].content.lower()
+
+
+async def test_descarte_todas_com_duas_propostas_apaga_as_duas(monkeypatch):
+    with google_configurado():
+        membro = await membro_conectado("AgendaDuasPropostasTodas")
+        injetar_google(monkeypatch, gravador())
+        await _preparar(membro, "t-cf-des9")
+        await _preparar(membro, "t-cf-des10", quando=_amanha(15))
+        saida = await _falar_com_agenda(
+            membro, "t-cf-des11", "descarte todas", _AgenteMudo()
+        )
+
+    assert await _propostas(membro.id) == []
+    assert "2" in saida["messages"][-1].content
