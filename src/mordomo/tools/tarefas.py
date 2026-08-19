@@ -145,6 +145,7 @@ async def criar_tarefa(
                     config,
                     "task_created",
                     journey_id=journey_id,
+                    journey_type="task",
                     task_id=tarefa.id,
                     compartilhada=compartilhada,
                     responsavel_id=responsavel_id,
@@ -303,12 +304,14 @@ async def _mudar_status(
                         config,
                         evento_jornada,
                         journey_id=journey_id,
+                        journey_type="task",
                         **payload_jornada,
                     ),
                     evento_de(
                         config,
                         evento_tarefa,
                         journey_id=journey_id,
+                        journey_type="task",
                         task_id=id_tarefa,
                     ),
                 ]

@@ -23,6 +23,7 @@ from sqlalchemy import func, select, text
 from ..config import settings
 from ..db.models import ProductEvent
 from ..db.session import Sessao
+from . import taxonomia
 from .precos import PRECO_TEMPLATE_WHATSAPP_USD, custo_usd
 
 
@@ -282,6 +283,136 @@ async def jornadas(desde: datetime) -> dict:
         "tempo_resolucao_p50_s": percentil(tempos_resolucao, 0.50),
         "tempo_resolucao_p95_s": percentil(tempos_resolucao, 0.95),
     }
+
+
+async def resultados(desde: datetime) -> dict:
+    """Resultado COMPROVADO por capacidade/operação — a métrica que separa
+    "processou" de "entregou".
+
+    Três coisas diferentes que o painel antigo confundia:
+
+      turno concluído   → o processamento técnico terminou;
+      resultado comprovado → há evidência determinística de efeito/valor;
+      jornada resolvida → a necessidade durável chegou ao desfecho (ver
+                          :func:`jornadas`).
+
+    `turn_completed`, `message_sent` e `tool_result(ok=True)` NÃO viram
+    resultado sozinhos. O que conta, por operação, está em
+    `taxonomia.Operacao.prova`:
+
+      leitura_entregue  — tool de leitura ok=True E resposta enviada no MESMO
+                          turno (ler o banco sem responder não ajudou ninguém);
+      efeito_persistido — a tool só devolve ok=True depois do commit;
+      efeito_externo    — ok=True COM o destino comprovado no payload. É o que
+                          exclui o "já criei" do sim repetido: ele prova a
+                          trava contra duplicata, não um compromisso novo.
+
+    `tentativas` conta só o que registrou entrada (`tool_called`); por isso a
+    taxa de sucesso publica o `denominador` (sucessos + falhas) que usou —
+    fatia parcial vira porcentagem mentirosa quando o leitor supõe outra base.
+    """
+    tipos = ("tool_called", "tool_result", "message_sent", *taxonomia.tipos_de_operacao())
+    eventos = await _eventos(desde, tipos)
+
+    # Turnos em que ALGUMA resposta saiu no canal — a prova da leitura.
+    turnos_com_resposta = {
+        e.turn_id for e in eventos if e.tipo == "message_sent" and e.turn_id
+    }
+
+    linhas: dict[tuple[str, str], dict] = {}
+    sem_classificacao = 0
+    for e in eventos:
+        p = e.payload or {}
+        projecao = taxonomia.projetar(e.tipo, p)
+        if projecao is None:
+            # Só o que DEVERIA ter classificação conta como buraco: message_sent
+            # é canal, e a ausência dele aqui não é falha de taxonomia.
+            if e.tipo in ("tool_called", "tool_result"):
+                sem_classificacao += 1
+            continue
+        if projecao.kind not in ("read", "write"):
+            continue
+
+        chave = (projecao.capability, projecao.operation)
+        linha = linhas.setdefault(
+            chave,
+            {
+                "capability": projecao.capability,
+                "operation": projecao.operation,
+                "kind": projecao.kind,
+                "prova": projecao.prova,
+                "tentativas": 0,
+                "sucessos": 0,
+                "falhas": 0,
+                "comprovados": 0,
+                "_comprovados_ids": set(),
+                "motivos": Counter(),
+                "por_dependencia": Counter(),
+            },
+        )
+        if projecao.evidence == "attempted":
+            linha["tentativas"] += 1
+            continue
+        if projecao.evidence == "failed":
+            linha["falhas"] += 1
+            linha["motivos"][p.get("motivo") or "?"] += 1
+        elif projecao.evidence == "succeeded":
+            linha["sucessos"] += 1
+            if _comprova(projecao, e, turnos_com_resposta):
+                # Sem call_id, a unidade mais honesta é um desfecho por
+                # turno/capacidade/operação. Execuções repetidas continuam em
+                # `sucessos`, mas retry de telemetria não infla valor entregue.
+                identidade = (
+                    e.turn_id or f"evento:{e.id}",
+                    projecao.capability,
+                    projecao.operation,
+                )
+                linha["_comprovados_ids"].add(identidade)
+                linha["comprovados"] = len(linha["_comprovados_ids"])
+        if projecao.dependency:
+            linha["por_dependencia"][projecao.dependency] += 1
+
+    por_operacao = []
+    for linha in sorted(linhas.values(), key=lambda x: (x["capability"], x["operation"])):
+        denominador = linha["sucessos"] + linha["falhas"]
+        linha.pop("_comprovados_ids", None)
+        por_operacao.append(
+            {
+                **linha,
+                "denominador": denominador,
+                "taxa_sucesso": (linha["sucessos"] / denominador) if denominador else None,
+                "motivos": linha["motivos"].most_common(),
+                "por_dependencia": dict(linha["por_dependencia"]),
+            }
+        )
+
+    por_capacidade: dict[str, dict] = defaultdict(
+        lambda: {"tentativas": 0, "sucessos": 0, "falhas": 0, "comprovados": 0}
+    )
+    for linha in por_operacao:
+        alvo = por_capacidade[linha["capability"]]
+        for campo in ("tentativas", "sucessos", "falhas", "comprovados"):
+            alvo[campo] += linha[campo]
+
+    return {
+        "por_operacao": por_operacao,
+        "por_capacidade": dict(sorted(por_capacidade.items())),
+        "comprovados": sum(linha["comprovados"] for linha in por_operacao),
+        "sem_classificacao": sem_classificacao,
+    }
+
+
+def _comprova(projecao, evento, turnos_com_resposta: set[str]) -> bool:
+    """A regra de evidência, por tipo de prova. Sem prova declarada na
+    taxonomia (preparar, descartar) NUNCA conta: é passo intermediário."""
+    if projecao.prova == "leitura_entregue":
+        return bool(evento.turn_id) and evento.turn_id in turnos_com_resposta
+    if projecao.prova == "efeito_persistido":
+        return True
+    if projecao.prova == "efeito_externo":
+        # Sem destino no payload não há prova de ONDE o efeito aconteceu.
+        return projecao.dependency is not None
+    return False
 
 
 async def produto(desde: datetime, contagens: dict[str, int] | None = None) -> dict:
@@ -557,6 +688,64 @@ SEM_TURNO_POR_DESENHO = (
 )
 
 
+async def cobertura(desde: datetime) -> dict:
+    """A telemetria olhando para si mesma: dá para cruzar o que foi gravado?
+
+    Órfão (o KPI antigo) responde "faltou turn_id?". Isto responde a pergunta
+    inteira: quanto do volume dá para amarrar a um turno, a uma sessão, a uma
+    pessoa e a uma jornada — e de qual RELEASE cada evento veio, que é o que
+    permite dizer "isto começou no deploy X". Evento anterior à Q1 não tem o
+    campo e entra como `desconhecida`: histórico não se reescreve.
+
+    A base de `turno` exclui quem nasce fora de turno por desenho (proativos,
+    comandos, statuses do canal) — contá-los como falha de correlação
+    transformaria decisão de arquitetura em bug permanente."""
+    eventos = await _eventos_todos(desde)
+    total = len(eventos)
+    elegiveis = [e for e in eventos if e.tipo not in SEM_TURNO_POR_DESENHO]
+
+    com_turno = sum(1 for e in elegiveis if e.turn_id)
+    com_sessao = sum(1 for e in eventos if e.session_id)
+    com_membro = sum(1 for e in eventos if e.member_id)
+    com_jornada = sum(1 for e in eventos if e.journey_id)
+
+    releases: Counter = Counter()
+    schemas: Counter = Counter()
+    for e in eventos:
+        p = e.payload or {}
+        releases[p.get("release") or "desconhecida"] += 1
+        schemas[str(p.get("event_schema") or "1 (legado)")] += 1
+
+    ultimo = max((e.ts for e in eventos), default=None)
+    return {
+        "total": total,
+        "elegiveis_turno": len(elegiveis),
+        "com_turno": com_turno,
+        "com_sessao": com_sessao,
+        "com_membro": com_membro,
+        "com_jornada": com_jornada,
+        # None, nunca 0%: sem base, porcentagem é invenção.
+        "taxa_turno": (com_turno / len(elegiveis)) if elegiveis else None,
+        "taxa_sessao": (com_sessao / total) if total else None,
+        "taxa_membro": (com_membro / total) if total else None,
+        "taxa_jornada": (com_jornada / total) if total else None,
+        "releases": releases.most_common(),
+        "schemas": schemas.most_common(),
+        "ultimo_evento": ultimo,
+        "minutos_desde_ultimo": (
+            (datetime.now(UTC) - ultimo).total_seconds() / 60 if ultimo else None
+        ),
+    }
+
+
+async def _eventos_todos(desde: datetime) -> list[ProductEvent]:
+    async with Sessao() as s:
+        res = await s.execute(
+            select(ProductEvent).where(*_janela(desde, None)).order_by(ProductEvent.ts)
+        )
+        return list(res.scalars())
+
+
 async def orfaos(desde: datetime) -> int:
     """Eventos sem turn_id — a métrica que vigia a própria instrumentação.
 
@@ -642,6 +831,8 @@ async def coletar(dias: int = 30) -> dict:
         "custo": await custo(desde),
         "lembretes": await lembretes(desde, contagens),
         "jornadas": await jornadas(desde),
+        "resultados": await resultados(desde),
+        "cobertura": await cobertura(desde),
         "produto": await produto(desde, contagens),
         "saude": await saude(desde, contagens),
         "funil": await funil(desde),

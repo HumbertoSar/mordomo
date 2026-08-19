@@ -25,6 +25,10 @@ from .db.session import Sessao
 # que a pessoa perdeu o fio — e aí o certo é remontar, não executar.
 VALIDADE_MINUTOS = 30
 
+# Quanto tempo uma reivindicação sem conclusão é considerada trabalho ativo.
+# Depois disso outro worker pode retomar com a MESMA proposta/chave Google.
+REIVINDICACAO_LEASE_MINUTOS = 2
+
 
 async def guardar(
     member_id: int,
@@ -39,8 +43,14 @@ async def guardar(
     turn_id: str | None = None,
     journey_id: str | None = None,
     agora: datetime | None = None,
+    eventos: list | None = None,
 ) -> EventProposal:
-    """Grava a proposta resolvida e devolve-a (já com `codigo`)."""
+    """Grava a proposta resolvida e devolve-a (já com `codigo`).
+
+    `eventos` entram na MESMA transação (é por onde passa o `journey_started`):
+    não pode existir jornada iniciada sem proposta persistida, nem proposta
+    apontando para uma jornada que nunca começou. Quem monta os eventos é o
+    chamador — este módulo é domínio, não analytics."""
     agora = agora or datetime.now(UTC)
     proposta = EventProposal(
         codigo=secrets.token_urlsafe(12),
@@ -59,6 +69,8 @@ async def guardar(
     )
     async with Sessao() as s:
         s.add(proposta)
+        if eventos:
+            s.add_all(eventos)
         await s.commit()
         await s.refresh(proposta)
     return proposta
@@ -101,9 +113,31 @@ async def reivindicar(
         # quis — e adivinhar aqui grava na agenda de alguém.
         return None, "ambigua"
     if not vivas:
-        if usada := next((p for p in todas if p.usado_em is not None), None):
-            return usada, "ja_usada"
-        return None, "expirada"
+        usada = next((p for p in todas if p.usado_em is not None), None)
+        if usada is None:
+            return None, "expirada"
+        if usada.concluido_em is None:
+            limite = agora - timedelta(minutes=REIVINDICACAO_LEASE_MINUTOS)
+            async with Sessao() as s:
+                retomada = await s.execute(
+                    update(EventProposal)
+                    .where(
+                        EventProposal.id == usada.id,
+                        EventProposal.concluido_em.is_(None),
+                        EventProposal.usado_em <= limite,
+                    )
+                    .values(usado_em=agora)
+                    .returning(EventProposal.id)
+                )
+                retomou = retomada.scalar_one_or_none() is not None
+                if retomou:
+                    await s.commit()
+                else:
+                    await s.rollback()
+            if retomou:
+                usada.usado_em = agora
+                return usada, "ok"
+        return usada, "ja_usada"
 
     proposta = vivas[0]
     async with Sessao() as s:
@@ -117,37 +151,92 @@ async def reivindicar(
         # Perdeu a corrida para um "sim" simultâneo: quem venceu já está
         # criando (ou criou) o evento. Não é erro — é a trava funcionando.
         return proposta, "ja_usada"
+    proposta.usado_em = agora
     return proposta, "ok"
 
 
-async def devolver(proposta_id: int) -> None:
-    """Desfaz a reivindicação — o evento NÃO foi criado (Google fora do ar,
-    credencial vencida). Sem isto o usuário ficaria preso: a proposta queimada
-    e nenhum compromisso na agenda."""
+async def devolver(proposta_id: int, *, reivindicada_em: datetime) -> bool:
+    """Desfaz SOMENTE a reivindicação deste worker quando o efeito não ocorreu.
+
+    A comparação do horário é a propriedade da lease: um worker antigo não pode
+    limpar a retomada de outro que já está executando com a mesma proposta."""
     async with Sessao() as s:
-        await s.execute(
+        devolvida = await s.execute(
             update(EventProposal)
-            .where(EventProposal.id == proposta_id)
+            .where(
+                EventProposal.id == proposta_id,
+                EventProposal.usado_em == reivindicada_em,
+                EventProposal.concluido_em.is_(None),
+            )
             .values(usado_em=None)
+            .returning(EventProposal.id)
         )
-        await s.commit()
+        ok = devolvida.scalar_one_or_none() is not None
+        if ok:
+            await s.commit()
+        else:
+            await s.rollback()
+        return ok
+
+
+async def concluir_na_sessao(
+    s,
+    proposta_id: int,
+    *,
+    link: str | None,
+    agora: datetime,
+    eventos: list | None = None,
+) -> bool:
+    """Conclui dentro da transação do chamador e exige uma reivindicação viva."""
+    concluida = await s.execute(
+        update(EventProposal)
+        .where(
+            EventProposal.id == proposta_id,
+            EventProposal.usado_em.is_not(None),
+            EventProposal.concluido_em.is_(None),
+        )
+        .values(link=link, concluido_em=agora)
+        .returning(EventProposal.id)
+    )
+    if concluida.scalar_one_or_none() is None:
+        return False
+    if eventos:
+        s.add_all(eventos)
+    return True
 
 
 async def concluir(
-    proposta_id: int, *, link: str | None, agora: datetime | None = None
-) -> None:
+    proposta_id: int,
+    *,
+    link: str | None,
+    agora: datetime | None = None,
+    eventos: list | None = None,
+) -> bool:
     """Marca execução concluída e guarda o link, quando o destino devolveu um.
 
     `usado_em` sozinho não basta: ele é adquirido antes da chamada externa e,
-    durante essa janela, outro "sim" não pode ouvir que o evento já existe."""
+    durante essa janela, outro "sim" não pode ouvir que o evento já existe.
+
+    `eventos` (o `journey_resolved`) entra na mesma transação da conclusão: a
+    resolução da jornada e o registro de que a execução terminou são o mesmo
+    fato. O que NÃO dá para tornar atômico é a chamada externa — o Google não
+    participa da transação. Por isso a ordem é: efeito confirmado lá fora →
+    conclusão + resolução aqui, juntas. Uma queda entre as duas deixa evento
+    criado e jornada aberta (o erro seguro), nunca o contrário."""
     agora = agora or datetime.now(UTC)
     async with Sessao() as s:
-        await s.execute(
-            update(EventProposal)
-            .where(EventProposal.id == proposta_id)
-            .values(link=link, concluido_em=agora)
+        ok = await concluir_na_sessao(
+            s,
+            proposta_id,
+            link=link,
+            agora=agora,
+            eventos=eventos,
         )
+        if not ok:
+            await s.rollback()
+            return False
         await s.commit()
+        return True
 
 
 async def pendentes(member_id: int, agora: datetime | None = None) -> list[EventProposal]:
@@ -168,19 +257,41 @@ async def pendentes(member_id: int, agora: datetime | None = None) -> list[Event
         return list(res.scalars())
 
 
-async def descartar(member_id: int, agora: datetime | None = None) -> int:
-    """Apaga os pendentes do membro. Devolve quantos foram descartados.
+async def descartar(
+    member_id: int,
+    agora: datetime | None = None,
+    eventos_por_jornada=None,
+) -> list[str | None]:
+    """Apaga os pendentes do membro. Devolve as jornadas realmente descartadas.
 
     DELETE, não "marcar como usado": desistir não é ter criado, e deixar a
-    linha para trás faria o próximo "sim" tropeçar nela."""
+    linha para trás faria o próximo "sim" tropeçar nela.
+
+    Devolve a LISTA (uma entrada por proposta apagada, `None` para proposta
+    antiga sem jornada) em vez do antigo contador: quem chama precisa abandonar
+    exatamente as jornadas que sumiram — nem uma a mais. Proposta expirada não
+    entra no filtro e portanto não vira abandono: ela não foi descartada, ela
+    venceu.
+
+    `eventos_por_jornada` recebe essas jornadas e devolve os eventos a gravar na
+    MESMA transação do DELETE — abandono sem descarte (ou o inverso) seria
+    exatamente a inconsistência que o resto deste módulo existe para evitar."""
     agora = agora or datetime.now(UTC)
+    pendentes_agora = (
+        EventProposal.member_id == member_id,
+        EventProposal.usado_em.is_(None),
+        EventProposal.expira_em > agora,
+    )
     async with Sessao() as s:
-        res = await s.execute(
-            delete(EventProposal).where(
-                EventProposal.member_id == member_id,
-                EventProposal.usado_em.is_(None),
-                EventProposal.expira_em > agora,
-            )
+        removidas = await s.execute(
+            delete(EventProposal)
+            .where(*pendentes_agora)
+            .returning(EventProposal.journey_id)
         )
+        jornadas = list(removidas.scalars())
+        if not jornadas:
+            return []
+        if eventos_por_jornada is not None and (eventos := eventos_por_jornada(jornadas)):
+            s.add_all(eventos)
         await s.commit()
-        return res.rowcount
+        return jornadas

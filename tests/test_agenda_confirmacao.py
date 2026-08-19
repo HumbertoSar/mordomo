@@ -19,6 +19,7 @@ from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import httpx
+import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 from sqlalchemy import select
 
@@ -222,6 +223,101 @@ async def test_confirmacao_em_andamento_nao_afirma_que_ja_criou(monkeypatch):
     assert "process" in resposta.lower() or "andamento" in resposta.lower()
 
 
+async def test_reivindicacao_orfa_reexecuta_google_com_id_deterministico(monkeypatch):
+    """Se o worker morreu depois do efeito externo, o retry precisa voltar ao
+    Google com a mesma proposta; um 409/ID idempotente permite reconciliar."""
+    with google_configurado():
+        membro = await membro_conectado("ConfirmaReivindicacaoOrfa")
+        handler = gravador()
+        injetar_google(monkeypatch, handler)
+        await _preparar(membro, "t-cf-lease", ate=_amanha(10))
+        velha = datetime.now(UTC) - timedelta(minutes=10)
+        tomada, motivo = await propostas.reivindicar(membro.id, agora=velha)
+        assert tomada is not None and motivo == "ok"
+
+        resposta = await _confirmar(membro, "t-cf-lease-b")
+
+    assert len(_posts(handler)) == 1
+    assert "process" not in resposta.lower()
+    atual = await _proposta_unica(membro)
+    assert atual.concluido_em is not None
+
+
+async def test_worker_antigo_nao_devolve_lease_retomada():
+    membro = await criar_membro("LeaseNaoDevolveNova")
+    inicio = datetime.now(UTC) + timedelta(days=1)
+    await propostas.guardar(
+        membro.id,
+        titulo="teste lease",
+        inicio=inicio,
+        fim=inicio + timedelta(hours=1),
+        local=None,
+        convidados=[],
+        com_meet=False,
+        destino="nativo",
+    )
+    velha = datetime.now(UTC) - timedelta(minutes=10)
+    primeira, motivo = await propostas.reivindicar(membro.id, agora=velha)
+    assert primeira is not None and motivo == "ok" and primeira.usado_em == velha
+    nova, motivo = await propostas.reivindicar(membro.id, agora=datetime.now(UTC))
+    assert nova is not None and motivo == "ok" and nova.usado_em != velha
+
+    devolveu = await propostas.devolver(primeira.id, reivindicada_em=velha)
+
+    assert devolveu is False
+    atual = await _proposta_unica(membro)
+    assert atual.usado_em == nova.usado_em
+
+
+async def test_google_nao_anuncia_novo_se_outro_worker_ja_concluiu(monkeypatch):
+    async def ja_concluida(*args, **kwargs):
+        return False
+
+    with google_configurado():
+        membro = await membro_conectado("ConfirmaGoogleConclusaoPerdida")
+        handler = gravador()
+        injetar_google(monkeypatch, handler)
+        await _preparar(membro, "t-cf-google-race", ate=_amanha(10))
+        monkeypatch.setattr(propostas, "concluir", ja_concluida)
+
+        resposta = await _confirmar(membro, "t-cf-google-race-b")
+
+    assert len(_posts(handler)) == 1
+    assert "já" in resposta.lower() and "evento criado" not in resposta.lower()
+    assert "'novo': False" in await _payloads("t-cf-google-race-b")
+
+
+async def test_concluir_exige_proposta_reivindicada_existente():
+    membro = await criar_membro("ConcluirSemProposta")
+    inicio = datetime.now(UTC) + timedelta(days=1)
+    proposta = await propostas.guardar(
+        membro.id,
+        titulo="teste",
+        inicio=inicio,
+        fim=inicio + timedelta(hours=1),
+        local=None,
+        convidados=[],
+        com_meet=False,
+        destino="nativo",
+        journey_id="j-concluir-ausente",
+    )
+    reivindicada, motivo = await propostas.reivindicar(membro.id)
+    assert reivindicada is not None and motivo == "ok"
+    async with Sessao() as s:
+        await s.delete(await s.get(EventProposal, proposta.id))
+        await s.commit()
+
+    resolveu = ProductEvent(
+        tipo="journey_resolved",
+        journey_id="j-concluir-ausente",
+        payload={"journey_type": "calendar_create"},
+    )
+    concluida = await propostas.concluir(proposta.id, link="nativo:1", eventos=[resolveu])
+
+    assert concluida is False
+    assert "journey_resolved" not in await _tipos_de_jornada("j-concluir-ausente")
+
+
 async def test_409_nao_inventa_que_convidados_foram_aceitos(monkeypatch):
     """409 prova apenas que o ID já existe; não traz o corpo do evento. Logo não
     prova que attendees ou Meet foram registrados."""
@@ -327,6 +423,43 @@ async def test_descartar_apaga_o_pendente_sem_criar(monkeypatch):
     assert "não" in depois.lower()
 
 
+async def test_descarte_e_um_delete_condicional_atomico(monkeypatch):
+    """SELECT seguido de DELETE permite a confirmação reivindicar no intervalo.
+    O contrato exige uma única escrita que devolva só o que realmente removeu."""
+    comandos = []
+
+    class Resultado:
+        def scalars(self):
+            return ["j-real"]
+
+    class SessaoFalsa:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def execute(self, comando):
+            comandos.append(comando)
+            return Resultado()
+
+        def add_all(self, eventos):
+            pass
+
+        async def commit(self):
+            pass
+
+    monkeypatch.setattr(propostas, "Sessao", SessaoFalsa)
+
+    jornadas = await propostas.descartar(7, eventos_por_jornada=lambda _: [])
+
+    assert jornadas == ["j-real"]
+    assert len(comandos) == 1, "não pode haver janela SELECT→DELETE"
+    sql = str(comandos[0]).lower()
+    assert sql.lstrip().startswith("delete")
+    assert "usado_em is null" in sql and "expira_em" in sql
+
+
 # ── sem Google: destino explícito e confirmação também ───────────────────
 
 
@@ -345,6 +478,24 @@ async def test_sem_google_tambem_confirma_antes_de_gravar(monkeypatch):
     eventos = await _eventos_nativos(membro.id)
     assert len(eventos) == 1 and eventos[0].fim_utc is not None
     assert "agenda compartilhada do Mordomo" in criada
+
+
+async def test_criacao_nativa_reverte_evento_se_conclusao_da_proposta_falhar(monkeypatch):
+    async def falhar(*args, **kwargs):
+        raise RuntimeError("falha injetada antes da conclusão")
+
+    with google_configurado():
+        membro = await criar_membro("ConfirmaNativaAtomica")
+        injetar_google(monkeypatch, gravador())
+        await _preparar(membro, "t-cf-nativa-atomica", ate=_amanha(10))
+        monkeypatch.setattr(propostas, "concluir_na_sessao", falhar)
+
+        with pytest.raises(RuntimeError, match="falha injetada"):
+            await _confirmar(membro, "t-cf-nativa-atomica-b")
+
+    assert await _eventos_nativos(membro.id) == []
+    proposta = await _proposta_unica(membro)
+    assert proposta.concluido_em is None
 
 
 async def test_sem_google_avisa_que_nao_convida_nem_cria_meet(monkeypatch):
@@ -535,3 +686,203 @@ async def test_descarte_todas_com_duas_propostas_apaga_as_duas(monkeypatch):
 
     assert await _propostas(membro.id) == []
     assert "2" in saida["messages"][-1].content
+
+
+# ── jornada de criação (multi-turno: preparar hoje, confirmar depois) ────
+# Marcar um compromisso não é um turno: é preparar, conferir e confirmar — às
+# vezes com horas no meio. O turno já era medido; a NECESSIDADE, não.
+
+
+async def _eventos_de_jornada(journey_id: str) -> list[ProductEvent]:
+    async with Sessao() as s:
+        res = await s.execute(
+            select(ProductEvent)
+            .where(ProductEvent.journey_id == journey_id)
+            .order_by(ProductEvent.id)
+        )
+        return list(res.scalars())
+
+
+async def _tipos_de_jornada(journey_id: str) -> list[str]:
+    return [e.tipo for e in await _eventos_de_jornada(journey_id)]
+
+
+async def test_preparar_inicia_a_jornada_e_grava_o_mesmo_id_na_proposta(monkeypatch):
+    with google_configurado():
+        membro = await membro_conectado("JornadaPrepara")
+        injetar_google(monkeypatch, gravador())
+        await _preparar(membro, "t-jc-1", ate=_amanha(10))
+
+    proposta = await _proposta_unica(membro)
+    assert proposta.journey_id, "a proposta é o elo entre os dois turnos"
+
+    inicios = [
+        e for e in await _eventos_de_jornada(proposta.journey_id)
+        if e.tipo == "journey_started"
+    ]
+    assert len(inicios) == 1
+    assert inicios[0].payload["journey_type"] == "calendar_create"
+    assert inicios[0].payload["loads"] == ["mental"]
+    assert inicios[0].turn_id == "t-jc-1", "a jornada nasce amarrada ao turno da preparação"
+
+
+async def test_convidados_somam_carga_de_logistica(monkeypatch):
+    with google_configurado():
+        membro = await membro_conectado("JornadaLogistica")
+        injetar_google(monkeypatch, gravador())
+        await _preparar(membro, "t-jc-2", ate=_amanha(10), convidados=[CONVIDADO])
+
+    proposta = await _proposta_unica(membro)
+    inicio = (await _eventos_de_jornada(proposta.journey_id))[0]
+    assert inicio.payload["loads"] == ["mental", "logistics"]
+
+
+async def test_confirmacao_no_google_resolve_a_jornada_uma_unica_vez(monkeypatch):
+    with google_configurado():
+        membro = await membro_conectado("JornadaConfirmaGoogle")
+        injetar_google(monkeypatch, gravador())
+        await _preparar(membro, "t-jc-3", ate=_amanha(10))
+        proposta = await _proposta_unica(membro)
+        await _confirmar(membro, "t-jc-3b")
+        await _confirmar(membro, "t-jc-3c")  # o "sim" repetido
+
+    assert proposta.journey_id is not None
+    eventos = await _eventos_de_jornada(proposta.journey_id)
+    resolvidos = [e for e in eventos if e.tipo == "journey_resolved"]
+    assert len(resolvidos) == 1, "confirmação repetida não resolve de novo"
+    assert resolvidos[0].payload["journey_type"] == "calendar_create"
+
+
+async def test_confirmacao_nativa_tambem_resolve(monkeypatch):
+    with google_configurado():
+        membro = await criar_membro("JornadaConfirmaNativa")
+        injetar_google(monkeypatch, gravador())
+        await _preparar(membro, "t-jc-4", ate=_amanha(10))
+        proposta = await _proposta_unica(membro)
+        await _confirmar(membro, "t-jc-4b")
+
+    assert (await _tipos_de_jornada(proposta.journey_id)).count("journey_resolved") == 1
+
+
+async def test_falha_no_google_nao_resolve_a_jornada(monkeypatch):
+    """A proposta volta a valer e a necessidade continua ABERTA — resolver aqui
+    seria afirmar que o compromisso existe quando ele não existe."""
+    def so_a_criacao_falha(r):
+        # A leitura (checagem de conflito, na preparação) segue normal: o que
+        # cai é a CRIAÇÃO, depois do sim.
+        if r.method == "GET":
+            return httpx.Response(200, json={"items": []})
+        return httpx.Response(503, json={"error": "indisponivel"})
+
+    with google_configurado():
+        membro = await membro_conectado("JornadaFalhaExterna")
+        handler = gravador([so_a_criacao_falha] * 4)
+        injetar_google(monkeypatch, handler)
+        await _preparar(membro, "t-jc-5", ate=_amanha(10))
+        proposta = await _proposta_unica(membro)
+        await _confirmar(membro, "t-jc-5b")
+
+    tipos = await _tipos_de_jornada(proposta.journey_id)
+    assert "journey_resolved" not in tipos
+    assert (await _proposta_unica(membro)).usado_em is None, "a proposta volta a valer"
+
+
+async def test_descarte_abandona_a_jornada_com_motivo_categorico(monkeypatch):
+    with google_configurado():
+        membro = await membro_conectado("JornadaDescarta")
+        injetar_google(monkeypatch, gravador())
+        await _preparar(membro, "t-jc-6", ate=_amanha(10))
+        proposta = await _proposta_unica(membro)
+        await descartar_evento.ainvoke({}, cfg_de(membro, "t-jc-6b"))
+
+    eventos = await _eventos_de_jornada(proposta.journey_id)
+    abandonos = [e for e in eventos if e.tipo == "journey_abandoned"]
+    assert len(abandonos) == 1
+    assert abandonos[0].payload["reason"] == "user_discarded"
+    assert abandonos[0].payload["journey_type"] == "calendar_create"
+
+
+async def test_descarte_de_duas_propostas_abandona_exatamente_duas_jornadas(monkeypatch):
+    with google_configurado():
+        membro = await membro_conectado("JornadaDescartaDuas")
+        injetar_google(monkeypatch, gravador())
+        await _preparar(membro, "t-jc-7", ate=_amanha(10))
+        await _preparar(membro, "t-jc-7b", quando=_amanha(15))
+        jornadas = {p.journey_id for p in await _propostas(membro.id)}
+        assert len(jornadas) == 2, "cada compromisso preparado é uma jornada própria"
+        await descartar_evento.ainvoke({}, cfg_de(membro, "t-jc-7c"))
+
+    for journey_id in jornadas:
+        assert (await _tipos_de_jornada(journey_id)).count("journey_abandoned") == 1
+
+
+async def test_descarte_sem_nada_pendente_nao_abandona_nada(monkeypatch):
+    """Nem toda desistência tem jornada: descartar o vazio não pode inventar
+    abandono nenhum."""
+    desde = datetime.now(UTC)
+    with google_configurado():
+        membro = await membro_conectado("JornadaDescartaVazio")
+        injetar_google(monkeypatch, gravador())
+        await descartar_evento.ainvoke({}, cfg_de(membro, "t-jc-8"))
+
+    async with Sessao() as s:
+        abandonos = list(
+            (
+                await s.execute(
+                    select(ProductEvent).where(
+                        ProductEvent.tipo == "journey_abandoned", ProductEvent.ts >= desde
+                    )
+                )
+            ).scalars()
+        )
+    assert abandonos == []
+
+
+async def test_proposta_expirada_nao_inventa_resolucao_nem_abandono(monkeypatch):
+    with google_configurado():
+        membro = await membro_conectado("JornadaExpirada")
+        injetar_google(monkeypatch, gravador())
+        await _preparar(membro, "t-jc-9", ate=_amanha(10))
+        proposta = await _proposta_unica(membro)
+        async with Sessao() as s:
+            alvo = (await s.execute(
+                select(EventProposal).where(EventProposal.id == proposta.id)
+            )).scalar_one()
+            alvo.expira_em = datetime.now(UTC) - timedelta(minutes=1)
+            await s.commit()
+        await _confirmar(membro, "t-jc-9b")
+        await descartar_evento.ainvoke({}, cfg_de(membro, "t-jc-9c"))
+
+    tipos = await _tipos_de_jornada(proposta.journey_id)
+    assert "journey_resolved" not in tipos and "journey_abandoned" not in tipos
+
+
+async def test_nenhum_evento_de_jornada_leva_titulo_email_local_ou_link(monkeypatch):
+    with google_configurado():
+        membro = await membro_conectado("JornadaPrivacidade")
+        injetar_google(monkeypatch, gravador())
+        await _preparar(
+            membro, "t-jc-10", ate=_amanha(10), local="Av. Paulista 1000",
+            convidados=[CONVIDADO], com_meet=True,
+        )
+        proposta = await _proposta_unica(membro)
+        await _confirmar(membro, "t-jc-10b")
+
+    bruto = repr([e.payload for e in await _eventos_de_jornada(proposta.journey_id)])
+    for proibido in (TITULO, CONVIDADO, "Av. Paulista 1000", LINK, "access-valido"):
+        assert proibido not in bruto
+
+
+async def test_jornada_de_agenda_aparece_no_placar_de_jornadas(monkeypatch):
+    from mordomo.reporting.queries import jornadas as agregar_jornadas
+
+    desde = datetime.now(UTC)
+    with google_configurado():
+        membro = await membro_conectado("JornadaNoPlacar")
+        injetar_google(monkeypatch, gravador())
+        await _preparar(membro, "t-jc-11", ate=_amanha(10))
+        await _confirmar(membro, "t-jc-11b")
+
+    placar = await agregar_jornadas(desde)
+    assert placar["por_tipo"].get("calendar_create") == 1
+    assert placar["resolvidas"] == 1

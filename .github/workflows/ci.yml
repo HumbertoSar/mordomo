@@ -7,12 +7,36 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: mordomo_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d mordomo_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
       - run: uv sync
       - name: Testes (sem rede, sem chaves — SQLite via conftest)
         run: uv run pytest -q
+      - name: Contrato de medição e jornadas no PostgreSQL
+        env:
+          DATABASE_URL: postgresql+psycopg://postgres@127.0.0.1:5432/mordomo_test
+        run: >-
+          uv run pytest
+          tests/test_agenda_confirmacao.py
+          tests/test_dashboard.py
+          tests/test_taxonomia.py
+          tests/test_jornadas_analytics.py
+          tests/test_tarefas_tools.py
+          -q
       - name: Lint
         run: uv run ruff check src tests
       - name: Eval de datas pt-BR (informativo — não quebra o build)

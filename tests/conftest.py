@@ -7,7 +7,9 @@ import asyncio
 import os
 import pathlib
 
-os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///./.pytest_mordomo.db"
+# SQLite hermético por padrão. Uma execução de contrato pode injetar um
+# PostgreSQL efêmero explicitamente; nunca apontar isto para produção.
+os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///./.pytest_mordomo.db")
 os.environ.setdefault("TZ_FAMILIA", "America/Sao_Paulo")
 # Hermético de verdade: variável de ambiente VAZIA vence o .env no
 # pydantic-settings — mesmo com chaves reais no .env local, os testes rodam

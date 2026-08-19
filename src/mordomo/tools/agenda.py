@@ -13,6 +13,7 @@ Gravar na agenda local nesse caso seria repetir o incidente de 16/08/2026 —
 "evento criado", nada no calendário da pessoa."""
 
 import re
+import uuid
 from datetime import UTC, datetime, timedelta
 from functools import partial
 from zoneinfo import ZoneInfo
@@ -22,7 +23,7 @@ from langchain_core.tools import tool
 from sqlalchemy import select
 
 from .. import propostas
-from ..analytics import emitir_de
+from ..analytics import emitir_de, evento_de
 from ..config import settings
 from ..db.models import FamilyEvent
 from ..db.session import Sessao
@@ -200,6 +201,14 @@ async def preparar_evento(
         await _conflitos_no_google(member_id, inicio, fim) if conectado else ([], False)
     )
 
+    # A JORNADA de criar um compromisso (ADR-010): ela nasce aqui e só fecha no
+    # "sim", que vem em OUTRO turno — às vezes horas depois. O id fica gravado
+    # na proposta porque é ela o único elo entre os dois turnos.
+    configuravel = config.get("configurable", {})
+    journey_id = configuravel.get("journey_id") or uuid.uuid4().hex
+    # Carga logística só quando há outra pessoa envolvida: convidar é
+    # coordenação, marcar sozinho é só memória.
+    cargas = ["mental", "logistics"] if convidados else ["mental"]
     proposta = await propostas.guardar(
         member_id,
         titulo=titulo,
@@ -209,12 +218,29 @@ async def preparar_evento(
         convidados=convidados,
         com_meet=bool(com_meet),
         destino=destino,
-        turn_id=config.get("configurable", {}).get("turn_id"),
-        journey_id=config.get("configurable", {}).get("journey_id"),
+        turn_id=configuravel.get("turn_id"),
+        journey_id=journey_id,
+        # Mesma transação da proposta: jornada iniciada sem proposta (ou o
+        # contrário) deixaria o funil descrevendo algo que não existe. Quando a
+        # jornada já veio do configurable, não começamos uma segunda.
+        eventos=(
+            []
+            if configuravel.get("journey_id")
+            else [
+                evento_de(
+                    config,
+                    "journey_started",
+                    journey_id=journey_id,
+                    journey_type="calendar_create",
+                    loads=cargas,
+                )
+            ]
+        ),
     )
     await emitir_de(
         config,
         "tool_result",
+        journey_id=journey_id,
         tool="preparar_evento",
         ok=True,
         destino=destino,
@@ -404,7 +430,8 @@ async def _gravar_no_google(config, proposta) -> str:
     if not resultado["ok"]:
         # A proposta volta a valer: o evento não existe, e queimá-la deixaria o
         # usuário sem compromisso e sem como repetir o "sim".
-        await propostas.devolver(proposta.id)
+        assert proposta.usado_em is not None
+        await propostas.devolver(proposta.id, reivindicada_em=proposta.usado_em)
         await emitir_de(
             config,
             "tool_result",
@@ -415,12 +442,27 @@ async def _gravar_no_google(config, proposta) -> str:
         )
         return _FALHA_AO_CRIAR.get(resultado["motivo"], _FALHA_GENERICA_AO_CRIAR)
 
-    await propostas.concluir(proposta.id, link=resultado.get("link"))
+    # O efeito externo está confirmado: só AGORA a jornada pode fechar.
+    concluida = await propostas.concluir(
+        proposta.id, link=resultado.get("link"), eventos=_resolucao(config, proposta)
+    )
+    if not concluida:
+        await emitir_de(
+            config,
+            "tool_result",
+            journey_id=proposta.journey_id,
+            tool="confirmar_evento",
+            ok=True,
+            motivo="ja_criado",
+            novo=False,
+        )
+        return "Esse compromisso eu JÁ criei — não vou duplicar. Diga isso ao usuário."
     convidados_aceitos = resultado.get("convidados_aceitos") or []
     meet = resultado.get("meet_link")
     await emitir_de(
         config,
         "tool_result",
+        journey_id=proposta.journey_id,
         tool="confirmar_evento",
         ok=True,
         destino="google",
@@ -487,17 +529,39 @@ async def _gravar_na_agenda_nativa(config, proposta) -> str:
             criado_por=proposta.member_id,
         )
         s.add(ev)
-        await s.commit()
-        await s.refresh(ev)
-    await propostas.concluir(proposta.id, link=f"nativo:{ev.id}")
+        await s.flush()
+        evento_id = ev.id
+        concluida = await propostas.concluir_na_sessao(
+            s,
+            proposta.id,
+            link=f"nativo:{evento_id}",
+            agora=datetime.now(UTC),
+            eventos=_resolucao(config, proposta),
+        )
+        if not concluida:
+            await s.rollback()
+        else:
+            await s.commit()
+    if not concluida:
+        await emitir_de(
+            config,
+            "tool_result",
+            journey_id=proposta.journey_id,
+            tool="confirmar_evento",
+            ok=True,
+            motivo="ja_criado",
+            novo=False,
+        )
+        return "Esse compromisso eu JÁ criei — não vou duplicar. Diga isso ao usuário."
     await emitir_de(
         config,
         "tool_result",
+        journey_id=proposta.journey_id,
         tool="confirmar_evento",
         ok=True,
         destino="nativo",
         novo=True,
-        evento_id=ev.id,
+        evento_id=evento_id,
         duracao_min=_duracao_min(proposta),
     )
     aviso = (
@@ -517,6 +581,24 @@ def _duracao_min(proposta) -> int:
     return int((proposta.fim_utc - proposta.inicio_utc).total_seconds() // 60)
 
 
+def _resolucao(config, proposta) -> list:
+    """O `journey_resolved` da proposta — vazio quando não há jornada.
+
+    Proposta antiga (de antes desta fatia) não tem `journey_id`: ela continua
+    criando o compromisso normalmente, só não fecha jornada nenhuma. Nada é
+    retrocriado para o histórico."""
+    if not proposta.journey_id:
+        return []
+    return [
+        evento_de(
+            config,
+            "journey_resolved",
+            journey_id=proposta.journey_id,
+            journey_type="calendar_create",
+        )
+    ]
+
+
 @tool
 async def descartar_evento(config: RunnableConfig) -> str:
     """DESCARTA o compromisso preparado que ainda não foi confirmado.
@@ -525,7 +607,24 @@ async def descartar_evento(config: RunnableConfig) -> str:
     """
     member_id = config["configurable"]["member_id"]
     await emitir_de(config, "tool_called", tool="descartar_evento")
-    quantos = await propostas.descartar(member_id)
+
+    def abandonos(jornadas: list) -> list:
+        """Uma jornada abandonada por proposta REALMENTE apagada — na mesma
+        transação do DELETE. Motivo categórico, nunca texto da conversa."""
+        return [
+            evento_de(
+                config,
+                "journey_abandoned",
+                journey_id=j,
+                journey_type="calendar_create",
+                reason="user_discarded",
+            )
+            for j in jornadas
+            if j
+        ]
+
+    descartadas = await propostas.descartar(member_id, eventos_por_jornada=abandonos)
+    quantos = len(descartadas)
     await emitir_de(
         config, "tool_result", tool="descartar_evento", ok=True, n_descartados=quantos
     )

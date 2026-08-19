@@ -148,10 +148,10 @@ async def test_criar_tarefa_privada_inicia_jornada_e_preserva_titulo():
 
     por_tipo = {evento.tipo: evento for evento in eventos}
     assert por_tipo["journey_started"].journey_id == tarefa.journey_id
-    assert por_tipo["journey_started"].payload == {
-        "journey_type": "task",
-        "loads": ["mental"],
-    }
+    # Só os campos da tool: todo evento carrega, ALÉM deles, a proveniência
+    # automática (release + event_schema) carimbada pelo emissor.
+    inicio = por_tipo["journey_started"].payload
+    assert inicio["journey_type"] == "task" and inicio["loads"] == ["mental"]
     assert por_tipo["task_created"].journey_id == tarefa.journey_id
     assert por_tipo["tool_result"].journey_id == tarefa.journey_id
     assert all("titulo" not in evento.payload for evento in eventos)
@@ -394,6 +394,7 @@ async def test_concluir_tarefa_resolve_a_mesma_jornada():
     assert "concluída" in resposta.lower()
     por_tipo = {evento.tipo: evento for evento in eventos}
     assert por_tipo["journey_resolved"].journey_id == tarefa.journey_id
+    assert por_tipo["journey_resolved"].payload["journey_type"] == "task"
     assert por_tipo["task_completed"].journey_id == tarefa.journey_id
     assert por_tipo["tool_result"].journey_id == tarefa.journey_id
 
