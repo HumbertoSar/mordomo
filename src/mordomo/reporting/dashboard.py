@@ -15,6 +15,7 @@ import asyncio
 import html
 import pathlib
 
+from ..observability import release_atual
 from ..plataforma import preparar
 from . import queries
 
@@ -115,6 +116,30 @@ def _ms(v: float | None) -> str:
     return "—" if v is None else f"{v / 1000:.1f}s"
 
 
+def _pct(v: float | None) -> str:
+    """Porcentagem — ou travessão. `None` aqui significa "não há base", e 0%
+    seria uma afirmação diferente (e falsa)."""
+    return f"{v:.0%}" if v is not None else "—"
+
+
+def _seg(v: float | None) -> str:
+    return f"{v:.0f}s" if v is not None and v < 90 else (f"{v / 60:.0f}min" if v else "—")
+
+
+def _minutos(v: float | None) -> str:
+    if v is None:
+        return "—"
+    if v < 90:
+        return f"{v:.0f}min"
+    return f"{v / 60:.0f}h" if v < 60 * 48 else f"{v / 1440:.0f}d"
+
+
+def _destinos(por_dependencia: dict) -> str:
+    """"google_calendar 3 · postgres 1" — a segmentação só aparece quando o
+    evento PROVOU a dependência; vazio quando não dá para saber."""
+    return " · ".join(f"{dep} {n}" for dep, n in sorted(por_dependencia.items())) or "—"
+
+
 def _mini_trajetoria(valores: list[float]) -> str:
     """Sparkline de acurácia em SVG — a história do eval numa célula de tabela."""
     if not valores:
@@ -136,23 +161,56 @@ def _mini_trajetoria(valores: list[float]) -> str:
     )
 
 
+def _eval_desatualizado(commit: str | None, release: str | None) -> bool:
+    """O último run salvo é de OUTRO commit que não o rodando agora?
+
+    Comparação por prefixo porque os dois lados abreviam o SHA em tamanhos
+    diferentes (7 no history.csv, 12 na release). Sem um dos dois lados a
+    resposta é "não sei" — e "não sei" não pode virar alarme falso, então
+    devolve False."""
+    if not commit or not release:
+        return False
+    return not (release.startswith(commit) or commit.startswith(release))
+
+
+# A frase que impede a leitura errada de sempre: "159 turnos" não é "159 coisas
+# resolvidas para a família". Fica no topo, junto dos números que ela qualifica.
+NOTA_NIVEIS = (
+    "Três níveis diferentes, de propósito: TURNO CONCLUÍDO é processamento "
+    "técnico que terminou; RESULTADO COMPROVADO exige evidência determinística "
+    "de efeito (leitura respondida no mesmo turno, ou gravação confirmada pelo "
+    "destino); JORNADA RESOLVIDA é a necessidade durável chegando ao desfecho. "
+    "Um não implica o outro — turno concluído sozinho não prova valor nenhum."
+)
+
+
 def montar_html(d: dict) -> str:
     t, c, f = d["turnos"], d["custo"], d["ferramentas"]
     total_turnos = t["total"]
     ant = d.get("anterior") or {}
+    res = d.get("resultados") or {}
+    cob = d.get("cobertura") or {}
+    jornadas = d.get("jornadas") or {}
 
     membros_ativos = max(t["membros_por_dia"].values(), default=0)
-    kpis_analytics = "".join(
+    comprovados = res.get("comprovados", 0)
+    frescor = cob.get("minutos_desde_ultimo")
+    kpis_exec = "".join(
         [
             _kpi(
-                "turnos", str(total_turnos), f"últimos {d['dias']} dias",
+                "turnos concluídos", str(total_turnos),
+                "processamento, não valor",
                 delta=_delta(total_turnos, ant.get("turnos", 0)),
             ),
-            _kpi("pico de membros/dia", str(membros_ativos)),
             _kpi(
-                "lembretes criados", str(d["lembretes"]["criados"]),
-                delta=_delta(d["lembretes"]["criados"], ant.get("lembretes", 0)),
+                "resultados comprovados", str(comprovados),
+                "com evidência de efeito",
             ),
+            _kpi(
+                "jornadas resolvidas", str(jornadas.get("resolvidas", 0)),
+                f"de {jornadas.get('iniciadas', 0)} iniciada(s)",
+            ),
+            _kpi("pico de membros/dia", str(membros_ativos)),
             _kpi(
                 "custo total", f"US$ {c['total_usd']:.4f}",
                 delta=_delta(c["total_usd"], ant.get("usd", 0.0)),
@@ -165,20 +223,69 @@ def montar_html(d: dict) -> str:
                     ant.get("usd", 0.0) / ant["turnos"] if ant.get("turnos") else 0.0,
                 ) if total_turnos else "",
             ),
+            _kpi(
+                "telemetria",
+                _minutos(frescor),
+                "desde o último evento",
+                alerta=bool(frescor is not None and frescor > 60 * 24),
+            ),
         ]
     )
     kpis_obs = "".join(
         [
-            _kpi("latência p50", _ms(t["p50_ms"])),
-            _kpi("latência p95", _ms(t["p95_ms"]), "cauda", alerta=bool(t["p95_ms"] and t["p95_ms"] > 10000)),
-            _kpi("taxa de erro", f"{t['taxa_erro']:.0%}", alerta=t["taxa_erro"] > 0.05),
             _kpi(
                 "eventos órfãos",
                 str(d["orfaos"]),
                 "sem turn_id — tem que ser 0",
                 alerta=d["orfaos"] > 0,
             ),
+            _kpi(
+                "correlação por turno",
+                _pct(cob.get("taxa_turno")),
+                f"de {cob.get('elegiveis_turno', 0)} evento(s) elegível(is)",
+            ),
+            _kpi("correlação por sessão", _pct(cob.get("taxa_sessao"))),
+            _kpi("correlação por membro", _pct(cob.get("taxa_membro"))),
+            _kpi(
+                "correlação por jornada",
+                _pct(cob.get("taxa_jornada")),
+                "esperada só em necessidades duráveis",
+            ),
+            _kpi(
+                "eventos sem taxonomia",
+                str(res.get("sem_classificacao", 0)),
+                "tool sem capacidade",
+                alerta=bool(res.get("sem_classificacao")),
+            ),
+            _kpi("eventos no período", str(cob.get("total", 0))),
         ]
+    )
+    releases_observadas = _barras_horizontais(cob.get("releases") or [])
+    schemas_observados = _barras_horizontais(cob.get("schemas") or [])
+
+    # ── resultados por capacidade (o placar de valor) ────────────────────
+    por_operacao = res.get("por_operacao") or []
+    comprovados_por_capacidade = sorted(
+        (
+            (cap, v["comprovados"])
+            for cap, v in (res.get("por_capacidade") or {}).items()
+            if v["comprovados"]
+        ),
+        key=lambda x: -x[1],
+    )
+    linhas_resultados = "".join(
+        f"<tr><td>{html.escape(r['capability'])}</td><td>{html.escape(r['operation'])}</td>"
+        f"<td>{html.escape(r['kind'])}</td>"
+        f"<td class='num'>{r['tentativas']}</td><td class='num'>{r['sucessos']}</td>"
+        f"<td class='num'>{r['falhas']}</td>"
+        f"<td class='num'>{_pct(r['taxa_sucesso'])}"
+        f"<span class='den'> /{r['denominador']}</span></td>"
+        f"<td class='num'>{r['comprovados']}</td>"
+        f"<td class='detalhe'>{html.escape(_destinos(r['por_dependencia']))}</td></tr>"
+        for r in por_operacao
+    ) or (
+        "<tr><td colspan='9' class='vazio'>Sem base: nenhuma capacidade foi "
+        "exercitada no período.</td></tr>"
     )
 
     p95_por_dia = {k: round(v / 1000, 1) for k, v in (t.get("p95_por_dia") or {}).items() if v}
@@ -199,13 +306,6 @@ def montar_html(d: dict) -> str:
     wa = ca.get("whatsapp") or {}
     por_canal = ca.get("por_canal") or {}
 
-    def _pct(v):
-        return f"{v:.0%}" if v is not None else "—"
-
-    def _seg(v):
-        return f"{v:.0f}s" if v is not None and v < 90 else (f"{v / 60:.0f}min" if v else "—")
-
-    jornadas = d.get("jornadas") or {}
     bloco_jornadas = ""
     if jornadas.get("iniciadas"):
         taxa = jornadas.get("taxa_resolucao")
@@ -328,8 +428,20 @@ def montar_html(d: dict) -> str:
         )
 
     evals = queries.serie_evals()
+    # Frescor é uma propriedade do processo que está executando o painel. A
+    # distribuição observada na janela é histórica e pode continuar dominada
+    # pela release anterior logo após um deploy.
+    release_para_eval = release_atual()
+
+    def status_eval(e: dict) -> str:
+        return (
+            " <span class='aviso'>eval desatualizado</span>"
+            if _eval_desatualizado(e["commit"], release_para_eval)
+            else ""
+        )
+
     linhas_evals = "".join(
-        f"<tr><td>{html.escape(e['nome'])}</td>"
+        f"<tr><td>{html.escape(e['nome'])}{status_eval(e)}</td>"
         f"<td class='num'>{e['acertos']}/{e['total']} ({e['acuracia']:.0%})</td>"
         f"<td>{_mini_trajetoria(e['trajetoria'])}</td>"
         f"<td>{html.escape(e['quando'])}</td><td><code>{html.escape(e['commit'] or '—')}</code></td>"
@@ -374,6 +486,44 @@ def montar_html(d: dict) -> str:
             "sem uso no período — alguém tentou migrar de canal e não completou "
             "(o código expira em 15 min).</p>"
         )
+
+    bloco_produto = f"""
+  <h1 class="secao">🎯 Produto e jornadas <span class="secao-sub">valor e desfecho comprovados</span></h1>
+  <p class="vazio">{html.escape(NOTA_NIVEIS)}</p>
+  <h2>Resultados por capacidade e operação</h2>
+  <div class="card">
+    <div class="rolar"><table>
+      <tr><th>capacidade</th><th>operação</th><th>tipo</th><th>tentativas</th>
+          <th>sucessos</th><th>falhas</th><th>taxa / denominador</th>
+          <th>comprovados</th><th>dependência</th></tr>
+      {linhas_resultados}
+    </table></div>
+    <h2 style="margin-top:1.5rem">Resultados comprovados por capacidade</h2>
+    {_barras_horizontais(comprovados_por_capacidade)}
+  </div>
+  {bloco_jornadas or "<div class='card'><p class='vazio'>Sem base: nenhuma jornada foi iniciada no período.</p></div>"}
+  <h2>Adoção e ativos do produto</h2>
+  <div class="kpis">{kpis_produto}</div>
+  {aviso_issues}
+  <h2>Pedidos por categoria</h2>
+  <div class="card">{
+      _barras_horizontais([(cat, n) for cat, n in prod["pedidos_por_categoria"]])
+      if prod["pedidos_por_categoria"]
+      else "<p class='vazio'>Nenhum pedido no período.</p>"
+  }</div>
+  <h2>Convites e migração de canal</h2>
+  <div class="card">
+    {_barras_horizontais([
+        ("convites criados", conv["criados"]),
+        ("convites usados", conv["usados"]),
+        ("convites rejeitados", conv["rejeitados"]),
+        ("códigos de /conectar", cx["criadas"]),
+        ("migrações concluídas", cx["usadas"]),
+    ])}
+    {aviso_migracao}
+    <p class="vazio">Curadoria: {prod["curadorias"]} rodada(s),
+       {prod["casos_propostos"]} caso(s) de eval proposto(s).</p>
+  </div>"""
 
     # A quebra que diz SE os órfãos são bug ativo ou resto histórico: a data do
     # mais recente é o veredito (antiga = sai da janela sozinho).
@@ -465,16 +615,15 @@ def montar_html(d: dict) -> str:
   <p class="sub">Últimos {d["dias"]} dias · gerado em {d["gerado_em"].strftime("%d/%m/%Y %H:%M")}
      ({d["gerado_em"].tzname()})</p>
 
-  <h1 class="secao">📊 Analytics <span class="secao-sub">o que a família usa</span></h1>
-  <div class="kpis">{kpis_analytics}</div>
+  <h1 class="secao">📊 Visão executiva <span class="secao-sub">Analytics para decidir</span></h1>
+  <div class="kpis">{kpis_exec}</div>
+  <p class="vazio">{html.escape(NOTA_NIVEIS)}</p>
 
   <h2>Turnos por dia</h2>
   <div class="card rolar">{_barras_verticais({k: v for k, v in d["turnos"]["por_dia"].items()})}</div>
 
   <h2>Funil do turno</h2>
   <div class="card">{_barras_horizontais([(r, n) for r, n in d["funil"]], " turnos")}</div>
-
-  {bloco_jornadas}
 
   <h2>Para onde o supervisor roteou</h2>
   <div class="card">{_barras_horizontais(sorted(d["roteamento"].items(), key=lambda x: -x[1]))}</div>
@@ -488,7 +637,9 @@ def montar_html(d: dict) -> str:
     ])}
   </div>
 
-  <h1 class="secao">📱 Canais <span class="secao-sub">a migração para o WhatsApp, medida</span></h1>
+  {bloco_produto}
+
+  <h1 class="secao">⚙️ Operação <span class="secao-sub">Canais, execução e dependências</span></h1>
   {f'''
   <div class="kpis">{kpis_canais}</div>
 
@@ -523,33 +674,16 @@ def montar_html(d: dict) -> str:
     <tr><th>código do erro</th><th>mensagens</th></tr>{erros_wa}
   </table></div>''' if erros_wa else ""}
 
-  <h1 class="secao">📦 Produto <span class="secao-sub">o que existe além da conversa</span></h1>
-  <div class="kpis">{kpis_produto}</div>
-  {aviso_issues}
-
-  <h2>Pedidos por categoria</h2>
-  <div class="card">{
-      _barras_horizontais([(cat, n) for cat, n in prod["pedidos_por_categoria"]])
-      if prod["pedidos_por_categoria"]
-      else "<p class='vazio'>Nenhum pedido no período — a família está servida. 🤵</p>"
-  }</div>
-
-  <h2>Convites e migração de canal</h2>
-  <div class="card">
-    {_barras_horizontais([
-        ("convites criados", conv["criados"]),
-        ("convites usados", conv["usados"]),
-        ("convites rejeitados", conv["rejeitados"]),
-        ("códigos de /conectar", cx["criadas"]),
-        ("migrações concluídas", cx["usadas"]),
-    ])}
-    {aviso_migracao}
-    <p class="vazio">Curadoria: {prod["curadorias"]} rodada(s) no período,
-       {prod["casos_propostos"]} caso(s) de eval proposto(s).</p>
-  </div>
-
   <h1 class="secao">🔬 Observabilidade <span class="secao-sub">como o sistema se comporta</span></h1>
   <div class="kpis">{kpis_obs}</div>
+
+  <h2>Cobertura de correlação</h2>
+  <div class="card"><p class="vazio">Turno, sessão e membro permitem reconstrução causal;
+     jornada só é esperada para necessidades duráveis.</p></div>
+  <h2>Releases observadas</h2>
+  <div class="card">{releases_observadas}</div>
+  <h2>Contratos de evento</h2>
+  <div class="card">{schemas_observados}</div>
 
   <h2>Latência p95 por dia (s)</h2>
   <div class="card rolar">{_barras_verticais(p95_por_dia, "s")}</div>
@@ -635,18 +769,23 @@ def montar_texto(d: dict) -> str:
     painel completo continua saindo pelo Telegram e pelo `make dashboard`."""
     t, c = d["turnos"], d["custo"]
     wa = (d.get("canais") or {}).get("whatsapp") or {}
+    resultados = d.get("resultados") or {}
+    jornadas = d.get("jornadas") or {}
     linhas = [
         f"📊 Gestão à vista — últimos {d['dias']} dias",
         "",
-        (f"• {t['total']} turno(s), {max(t['membros_por_dia'].values(), default=0)} "
-         "pessoa(s) no melhor dia"),
+        (f"• turnos concluídos: {t['total']} · "
+         f"{max(t['membros_por_dia'].values(), default=0)} pessoa(s) no melhor dia"),
+        f"• resultados comprovados: {resultados.get('comprovados', 0)}",
+        (f"• jornadas resolvidas: {jornadas.get('resolvidas', 0)} "
+         f"de {jornadas.get('iniciadas', 0)} iniciada(s)"),
+        "• níveis diferentes: turno concluído não prova resultado nem jornada resolvida",
         f"• latência p50 {_ms(t['p50_ms'])} · p95 {_ms(t['p95_ms'])}",
         f"• taxa de erro {t['taxa_erro']:.0%}",
         f"• custo US$ {c['total_usd']:.4f}"
         + (f" (US$ {c['total_usd'] / t['total']:.4f} por turno)" if t["total"] else ""),
         f"• lembretes criados: {d['lembretes']['criados']}",
     ]
-    jornadas = d.get("jornadas") or {}
     if jornadas.get("iniciadas"):
         taxa = jornadas.get("taxa_resolucao")
         taxa_txt = f"{taxa:.0%}" if taxa is not None else "sem desfechos ainda"

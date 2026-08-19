@@ -1,10 +1,12 @@
-"""Dashboard: as quatro seções montam contra o banco de teste, sem rede."""
+"""Dashboard: as camadas montam contra o banco de teste, sem rede."""
 
 from datetime import UTC, datetime, timedelta
 
 import pytest
 
 from mordomo.analytics import emitir
+from mordomo.db.models import ProductEvent
+from mordomo.db.session import Sessao
 from mordomo.reporting import queries
 from mordomo.reporting.dashboard import _delta, _mini_trajetoria, gerar_html
 
@@ -342,6 +344,324 @@ async def test_latencia_por_canal_casa_pelo_turn_id():
     lpc = await queries.latencia_por_canal(desde)
     assert lpc["whatsapp"]["turnos"] >= 1
     assert lpc["whatsapp"]["p50_ms"] is not None
+
+
+# ── resultados comprovados (turno ≠ resultado ≠ jornada) ────────────────
+
+
+def _linha(resultados: dict, capability: str, operation: str) -> dict:
+    achadas = [
+        r for r in resultados["por_operacao"]
+        if r["capability"] == capability and r["operation"] == operation
+    ]
+    assert len(achadas) == 1, f"{capability}/{operation} não apareceu uma única vez"
+    return achadas[0]
+
+
+async def test_leitura_so_conta_como_resultado_com_resposta_no_mesmo_turno():
+    """Ler a agenda e não conseguir responder não ajudou ninguém — o valor de
+    uma leitura é a resposta chegando, não a query voltando."""
+    desde = datetime.now(UTC)
+
+    await emitir("tool_called", 1, "1:t", "t-res-le1", tool="listar_agenda", dias=7)
+    await emitir("tool_result", 1, "1:t", "t-res-le1", tool="listar_agenda", ok=True, n=3)
+    await emitir("message_sent", 1, "1:t", "t-res-le1", canal="whatsapp", tamanho=80)
+    # mesma leitura bem-sucedida, mas o turno morreu antes de responder
+    await emitir("tool_called", 1, "1:t", "t-res-le2", tool="listar_agenda", dias=7)
+    await emitir("tool_result", 1, "1:t", "t-res-le2", tool="listar_agenda", ok=True, n=3)
+
+    linha = _linha(await queries.resultados(desde), "agenda", "listar")
+    assert linha["tentativas"] == 2
+    assert linha["sucessos"] == 2
+    assert linha["comprovados"] == 1
+
+
+async def test_retry_da_mesma_leitura_no_turno_nao_duplica_resultado_comprovado():
+    """Sem call_id não dá para distinguir retry de uma segunda operação legítima.
+    A unidade conservadora é um resultado por turno/capacidade/operação."""
+    desde = datetime.now(UTC)
+    for _ in range(2):
+        await emitir("tool_result", 1, "1:t", "t-res-retry", tool="listar_agenda", ok=True, n=3)
+    await emitir("message_sent", 1, "1:t", "t-res-retry", canal="whatsapp", tamanho=80)
+
+    linha = _linha(await queries.resultados(desde), "agenda", "listar")
+    assert linha["sucessos"] == 2, "sucesso operacional continua contando execuções"
+    assert linha["comprovados"] == 1, "valor não pode dobrar por retry de telemetria"
+
+
+async def test_mutacao_que_falhou_nao_vira_resultado():
+    desde = datetime.now(UTC)
+
+    await emitir("tool_called", 1, "1:t", "t-res-mut", tool="confirmar_evento")
+    await emitir("tool_result", 1, "1:t", "t-res-mut", tool="confirmar_evento",
+                 ok=False, destino="google", motivo="rede_indisponivel")
+    await emitir("message_sent", 1, "1:t", "t-res-mut", canal="whatsapp", tamanho=40)
+
+    linha = _linha(await queries.resultados(desde), "agenda", "confirmar_criar")
+    assert (linha["sucessos"], linha["falhas"], linha["comprovados"]) == (0, 1, 0)
+    assert ("rede_indisponivel", 1) in linha["motivos"]
+    assert linha["taxa_sucesso"] == 0.0 and linha["denominador"] == 1
+
+
+async def test_mutacao_comprovada_segmenta_por_dependencia():
+    desde = datetime.now(UTC)
+
+    await emitir("tool_called", 1, "1:t", "t-res-ok", tool="confirmar_evento")
+    await emitir("tool_result", 1, "1:t", "t-res-ok", tool="confirmar_evento",
+                 ok=True, destino="google", novo=True, duracao_min=60)
+
+    linha = _linha(await queries.resultados(desde), "agenda", "confirmar_criar")
+    assert linha["comprovados"] == 1
+    assert linha["por_dependencia"]["google_calendar"] == 1
+
+
+async def test_confirmacao_repetida_nao_conta_resultado_novo():
+    """"Já criei" prova que a trava contra duplicata funcionou, não que um
+    compromisso novo passou a existir."""
+    desde = datetime.now(UTC)
+
+    await emitir("tool_called", 1, "1:t", "t-res-rep", tool="confirmar_evento")
+    await emitir("tool_result", 1, "1:t", "t-res-rep", tool="confirmar_evento",
+                 ok=True, motivo="ja_criado", novo=False)
+
+    linha = _linha(await queries.resultados(desde), "agenda", "confirmar_criar")
+    assert linha["sucessos"] == 1
+    assert linha["comprovados"] == 0
+
+
+async def test_turno_concluido_e_mensagem_enviada_nao_sao_resultado():
+    """O funil do turno mede processamento. Sem tool de capacidade nenhuma, o
+    placar de resultados tem que ficar em zero."""
+    desde = datetime.now(UTC)
+
+    await emitir("message_received", 1, "1:t", "t-res-vazio", canal="whatsapp", tamanho=10)
+    await emitir("turn_completed", 1, "1:t", "t-res-vazio", ok=True, latencia_ms=900.0)
+    await emitir("message_sent", 1, "1:t", "t-res-vazio", canal="whatsapp", tamanho=30)
+
+    r = await queries.resultados(desde)
+    assert r["comprovados"] == 0
+    assert r["por_operacao"] == []
+
+
+async def test_legado_criar_evento_continua_no_placar_da_agenda():
+    desde = datetime.now(UTC)
+
+    await emitir("tool_called", 1, "1:t", "t-res-leg", tool="criar_evento")
+    await emitir("tool_result", 1, "1:t", "t-res-leg", tool="criar_evento", ok=True, evento_id=7)
+
+    linha = _linha(await queries.resultados(desde), "agenda", "criar")
+    assert linha["comprovados"] == 1
+
+
+async def test_fato_de_dominio_nao_duplica_a_tool_que_o_gerou():
+    """`reminder_created` acompanha o `tool_result` de `criar_lembrete`: contar
+    os dois dobraria a capacidade Lembretes."""
+    desde = datetime.now(UTC)
+
+    await emitir("tool_called", 1, "1:t", "t-res-lem", tool="criar_lembrete", quando="amanhã")
+    await emitir("tool_result", 1, "1:t", "t-res-lem", tool="criar_lembrete", ok=True)
+    await emitir("reminder_created", 1, "1:t", "t-res-lem", reminder_id=1, quando="amanhã")
+
+    linha = _linha(await queries.resultados(desde), "lembretes", "criar")
+    assert linha["sucessos"] == 1 and linha["comprovados"] == 1
+
+
+async def test_operacao_sem_tool_entra_pelo_evento_de_dominio():
+    """O documento é guardado pelo adapter, fora do turno — sem tool nenhuma.
+    Ainda assim é resultado comprovado da capacidade Documentos."""
+    desde = datetime.now(UTC)
+
+    await emitir("document_stored", 1, "1:t", nome="boleto.pdf", mime="application/pdf",
+                 tamanho=1024)
+
+    linha = _linha(await queries.resultados(desde), "documentos", "guardar")
+    assert linha["comprovados"] == 1
+
+
+async def test_evento_sem_classificacao_aparece_em_vez_de_sumir():
+    desde = datetime.now(UTC)
+
+    await emitir("tool_called", 1, "1:t", "t-res-novo", tool="tool_ainda_sem_taxonomia")
+    await emitir("tool_result", 1, "1:t", "t-res-novo", tool="tool_ainda_sem_taxonomia", ok=True)
+
+    r = await queries.resultados(desde)
+    assert r["sem_classificacao"] >= 2
+    assert r["por_operacao"] == []
+
+
+async def test_resultados_agregam_por_capacidade():
+    desde = datetime.now(UTC)
+
+    await emitir("tool_called", 1, "1:t", "t-res-cap", tool="criar_tarefa")
+    await emitir("tool_result", 1, "1:t", "t-res-cap", tool="criar_tarefa", ok=True, task_id=1)
+    await emitir("tool_called", 1, "1:t", "t-res-cap", tool="listar_tarefas")
+    await emitir("tool_result", 1, "1:t", "t-res-cap", tool="listar_tarefas", ok=True, n=2)
+    await emitir("message_sent", 1, "1:t", "t-res-cap", canal="telegram", tamanho=50)
+
+    cap = (await queries.resultados(desde))["por_capacidade"]["tarefas"]
+    assert cap["tentativas"] == 2 and cap["sucessos"] == 2 and cap["comprovados"] == 2
+
+
+# ── cobertura de correlação e proveniência (Observabilidade) ────────────
+
+
+async def test_cobertura_mede_correlacao_e_releases_observadas():
+    desde = datetime.now(UTC)
+
+    await emitir("tool_called", 1, "1:t", "t-cob-1", tool="listar_agenda")
+    # evento histórico: sem release e sem event_schema, como os de antes da Q1
+    async with Sessao() as s:
+        s.add(
+            ProductEvent(
+                tipo="tool_result", member_id=1, session_id="1:t", turn_id="t-cob-1",
+                payload={"tool": "listar_agenda", "ok": True},
+            )
+        )
+        await s.commit()
+
+    c = await queries.cobertura(desde)
+    releases = dict(c["releases"])
+    assert releases["desconhecida"] >= 1, "evento legado continua contável"
+    assert sum(releases.values()) == c["total"]
+    assert c["com_turno"] >= 2 and 0 < c["taxa_turno"] <= 1.0
+    assert c["ultimo_evento"] is not None
+
+
+async def test_cobertura_de_turno_ignora_quem_nasce_fora_de_turno():
+    """`reminder_fired` não responde a pergunta nenhuma: contá-lo como falha de
+    correlação transformaria desenho em bug."""
+    desde = datetime.now(UTC)
+
+    await emitir("reminder_fired", 1, "1:t", reminder_id=1)
+
+    c = await queries.cobertura(desde)
+    assert c["elegiveis_turno"] == 0
+    assert c["taxa_turno"] is None, "sem base, sem porcentagem inventada"
+
+
+# ── as cinco camadas do painel ──────────────────────────────────────────
+
+
+async def test_dashboard_monta_as_cinco_camadas_na_ordem():
+    html = await gerar_html(dias=7)
+
+    camadas = ["Visão executiva", "Produto e jornadas", "Operação",
+               "Observabilidade", "Evaluation"]
+    posicoes = [html.find(c) for c in camadas]
+    assert all(p > 0 for p in posicoes), dict(zip(camadas, posicoes, strict=True))
+    assert posicoes == sorted(posicoes), "as camadas vão do executivo ao diagnóstico"
+    assert "<script" not in html and "cdn" not in html.lower()
+
+
+async def test_dashboard_distingue_turno_de_resultado_e_de_jornada():
+    """Os três números que o painel antigo confundia. Se o rótulo não os
+    separar, "159 turnos concluídos" volta a ser lido como valor entregue."""
+    html = await gerar_html(dias=7)
+
+    assert "turnos concluídos" in html
+    assert "resultados comprovados" in html
+    assert "jornadas resolvidas" in html
+    # e a explicação de que um não implica o outro
+    assert "não" in html and "processamento" in html
+
+
+async def test_dashboard_mostra_resultado_por_capacidade_com_denominador():
+    await emitir("tool_called", 1, "1:t", "t-dash-cap", tool="listar_agenda", dias=7)
+    await emitir("tool_result", 1, "1:t", "t-dash-cap", tool="listar_agenda", ok=True, n=2)
+    await emitir("message_sent", 1, "1:t", "t-dash-cap", canal="whatsapp", tamanho=50)
+
+    html = await gerar_html(dias=1)
+
+    assert "agenda" in html and "listar" in html
+    # denominador explícito: taxa sem base declarada é taxa que engana
+    assert "comprovados" in html and "denominador" in html.lower()
+
+
+async def test_dashboard_expoe_release_e_cobertura_na_observabilidade():
+    await emitir("tool_called", 1, "1:t", "t-dash-obs", tool="listar_tarefas")
+
+    html = await gerar_html(dias=1)
+
+    assert "Releases observadas" in html
+    assert "Cobertura de correlação" in html
+
+
+async def test_dashboard_sem_base_nao_inventa_numero():
+    html = await gerar_html(dias=0)
+
+    assert "Sem base" in html or "Sem dados" in html or "sem base" in html
+
+
+def test_eval_desatualizado_compara_commit_do_run_com_a_release():
+    from mordomo.reporting.dashboard import _eval_desatualizado
+
+    assert _eval_desatualizado("1955f22", "1955f22abcd") is False
+    assert _eval_desatualizado("1955f22", "2dbab9d7370") is True
+    # sem release descoberta não dá para julgar — e julgar errado é pior
+    assert _eval_desatualizado("1955f22", None) is False
+    assert _eval_desatualizado("", "2dbab9d7370") is False
+
+
+async def test_dashboard_html_avisa_quando_eval_e_de_outra_release():
+    await emitir("tool_called", 1, "1:t", "t-eval-stale", tool="listar_tarefas")
+
+    html = await gerar_html(dias=1)
+
+    assert "eval desatualizado" in html.lower()
+
+
+@pytest.mark.parametrize(
+    ("commit_eval", "espera_alerta"),
+    [("release-antiga", True), ("release-atual", False)],
+)
+async def test_eval_compara_com_processo_atual_e_nao_com_release_dominante(
+    monkeypatch, commit_eval, espera_alerta
+):
+    from mordomo.reporting import dashboard
+
+    dados = await queries.coletar(0)
+    dados["cobertura"]["releases"] = [("release-antiga", 100), ("release-atual", 1)]
+
+    async def coletar_controlado(_dias):
+        return dados
+
+    monkeypatch.setattr(queries, "coletar", coletar_controlado)
+    monkeypatch.setattr(dashboard, "release_atual", lambda: "release-atual")
+    monkeypatch.setattr(
+        queries,
+        "serie_evals",
+        lambda: [
+            {
+                "nome": "datas_ptbr",
+                "acertos": 1,
+                "total": 1,
+                "acuracia": 1.0,
+                "trajetoria": [1.0],
+                "quando": "agora",
+                "commit": commit_eval,
+                "detalhe": "",
+            }
+        ],
+    )
+
+    html = await gerar_html(dias=1)
+
+    alerta = "<span class='aviso'>eval desatualizado</span>" in html.lower()
+    assert alerta is espera_alerta
+
+
+async def test_dashboard_textual_distingue_turno_resultado_e_jornada():
+    from mordomo.reporting.dashboard import gerar_texto
+
+    await emitir("tool_result", 1, "1:t", "t-texto-niveis", tool="listar_tarefas", ok=True)
+    await emitir("message_sent", 1, "1:t", "t-texto-niveis", canal="whatsapp", tamanho=20)
+
+    texto = await gerar_texto(dias=1)
+
+    assert "turno" in texto.lower()
+    assert "resultado" in texto.lower()
+    assert "jornada" in texto.lower()
+    assert "não prova" in texto.lower() or "diferentes" in texto.lower()
 
 
 async def test_resumo_respeita_a_janela_superior():

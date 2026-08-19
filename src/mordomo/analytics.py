@@ -26,6 +26,11 @@ entra em nenhum funil — vira linha órfã que ninguém consegue cruzar depois.
 (Foi exatamente o que aconteceu no primeiro dia de uso: tool_called,
 reminder_created e message_sent nasceram sem sessão.)
 
+PROVENIÊNCIA (contrato v2): todo evento novo sai carimbado com `release` (de
+qual deploy veio) e `event_schema` (versão do contrato) — automaticamente, sem
+o chamador pedir e sem poder falsificar. Evento histórico não tem os campos e
+continua válido: a leitura o agrega como release desconhecida (contrato v1).
+
 Eventos operacionais comuns nunca derrubam a conversa (try/except deliberado).
 Fatos que são invariantes do domínio, como tarefa + ciclo de vida da jornada,
 usam ``evento_de`` na mesma transação: ou ambos persistem, ou ambos voltam."""
@@ -38,6 +43,50 @@ from .db.session import Sessao
 
 log = logging.getLogger(__name__)
 
+# Versão do CONTRATO do evento (não do software): muda quando o significado de
+# um campo muda, não a cada deploy. Curta e estável de propósito — quem lê usa
+# para saber como interpretar o payload, e evento antigo (sem o campo) continua
+# válido: é a versão 1 implícita.
+ESQUEMA_EVENTO = "2"
+
+_release_lido = False
+_release_valor: str | None = None
+
+
+def _release() -> str | None:
+    """A release do processo, lida UMA vez.
+
+    Import preguiçoso de propósito: `observability` é a camada de traces e não
+    pode virar dependência de import do emissor (nem o contrário) — analytics
+    tem que continuar importável sozinho. A leitura vai ao disco (.git) quando
+    não há MORDOMO_RELEASE, então o valor fica em cache por processo: um evento
+    por turno não pode custar um stat de arquivo."""
+    global _release_lido, _release_valor
+    if not _release_lido:
+        try:
+            from .observability import release_atual
+
+            _release_valor = release_atual()
+        except Exception:  # release é carimbo, nunca requisito da conversa
+            log.exception("Não consegui descobrir a release (eventos seguem sem ela)")
+            _release_valor = None
+        _release_lido = True
+    return _release_valor
+
+
+def _com_proveniencia(payload: dict) -> dict:
+    """Carimba release + versão do contrato — depois do chamador, nunca antes.
+
+    Vem por último de propósito: release é fato do PROCESSO. Se uma tool pudesse
+    informá-la, "de qual deploy veio este evento?" viraria opinião de quem
+    emite. Sem release descoberta o campo simplesmente não entra (a leitura
+    agrega esses eventos como release desconhecida) — inventar "?" aqui
+    misturaria "não sei" com um nome de versão."""
+    marca = {"event_schema": ESQUEMA_EVENTO}
+    if release := _release():
+        marca["release"] = release
+    return {**payload, **marca}
+
 
 async def emitir(
     tipo: str,
@@ -47,6 +96,7 @@ async def emitir(
     journey_id: str | None = None,
     **payload,
 ) -> None:
+    payload = _com_proveniencia(payload)
     # ANTES do try: o registro em memória de efeito mutante não pode se perder
     # junto com uma falha de banco — é ele que impede o retry de duplicar.
     efeitos.observar(tipo, turn_id, payload)
@@ -93,7 +143,7 @@ def evento_de(
     contexto = contexto_de(config)
     if journey_id is not None:
         contexto["journey_id"] = journey_id
-    return ProductEvent(tipo=tipo, payload=payload, **contexto)
+    return ProductEvent(tipo=tipo, payload=_com_proveniencia(payload), **contexto)
 
 
 async def emitir_de(
